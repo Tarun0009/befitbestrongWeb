@@ -1,0 +1,38 @@
+# Dependencies and generated output
+node_modules/
+dist/
+build/
+.next/
+coverage/
+.pnpm-store/
+.turbo/
+*.log
+
+# Local environment files; keep placeholder examples trackable
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Private keys and service credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+*firebase-adminsdk*.json
+
+# Machine-local AI assistant settings and handoff notes
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.codex/
+.cursor/
+.agents/
+SESSION.md
+*.local.md
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+Desktop.ini

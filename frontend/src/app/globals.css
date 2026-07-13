@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * beFitBeStrong theme — yellow-forward.
+ *
+ * Palette rationale:
+ *   - Primary is a vivid gym-brand yellow (~ Gold's-gym / Barry's territory).
+ *   - Primary-foreground is a deep warm charcoal, not pure black — pairs
+ *     softer with saturated yellow and reads confidently on the bg.
+ *   - Neutrals carry a small warm tint (~40deg hue) so the whole surface
+ *     feels tonal with the primary instead of a cold gray + hot yellow clash.
+ *   - Warning is defined as ORANGE (not amber) so it stays distinguishable
+ *     from the primary yellow — critical for at-a-glance status pills.
+ */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 40 20% 10%;
+
+    --primary: 45 96% 52%;             /* vivid brand yellow */
+    --primary-foreground: 40 25% 10%;  /* deep warm charcoal on yellow */
+
+    --muted: 45 40% 96%;               /* pale warm gray-cream */
+    --muted-foreground: 40 8% 45%;
+
+    --border: 40 15% 88%;
+  }
+
+  .dark {
+    --background: 40 20% 8%;
+    --foreground: 45 30% 96%;
+
+    --primary: 45 96% 55%;
+    --primary-foreground: 40 25% 10%;
+
+    --muted: 40 15% 15%;
+    --muted-foreground: 40 15% 65%;
+
+    --border: 40 10% 20%;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@layer utilities {
+  @keyframes rewards-ticker {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  .rewards-ticker-track {
+    animation: rewards-ticker 28s linear infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rewards-ticker-track {
+      animation: none;
+    }
+  }
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-height: 100vh;
+  }
+
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 3px solid hsl(var(--primary));
+    outline-offset: 3px;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.35);
+    color: hsl(var(--foreground));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

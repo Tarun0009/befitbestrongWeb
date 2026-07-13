@@ -1,0 +1,670 @@
+openapi: 3.1.0
+info:
+  title: ecommerceWeb API
+  version: 1.0.0
+  description: |
+    HTTP API for the ecommerceWeb storefront + admin. Hand-authored reference
+    covering the endpoints the frontend depends on. Paste this file into
+    editor.swagger.io for an interactive view, or run
+    `npx @redocly/cli preview-docs docs/openapi.yaml`.
+
+servers:
+  - url: http://localhost:4000
+    description: Local dev
+
+tags:
+  - name: Health
+  - name: Auth
+  - name: Products
+  - name: Search
+  - name: Cart
+  - name: Checkout
+  - name: Orders
+  - name: Admin
+  - name: Webhooks
+
+components:
+  securitySchemes:
+    firebaseBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Firebase ID token. Attach as `Authorization: Bearer <idToken>`.
+    cartSessionCookie:
+      type: apiKey
+      in: cookie
+      name: cart_sid
+      description: Auto-issued on first cart interaction. Preserves the guest cart.
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: {}
+    OrderStatus:
+      type: string
+      enum: [PENDING, PAID, SHIPPED, DELIVERED, CANCELLED, FAILED, REFUNDED]
+    Category:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: string, nullable: true }
+        productCount: { type: integer }
+    ProductImage:
+      type: object
+      properties:
+        id: { type: string }
+        url: { type: string, format: uri }
+        alt: { type: string, nullable: true }
+        position: { type: integer }
+    ProductVariant:
+      type: object
+      properties:
+        id: { type: string }
+        sku: { type: string }
+        size: { type: string, nullable: true }
+        color: { type: string, nullable: true }
+        price: { type: integer, description: "Paise (minor units)" }
+        stock: { type: integer }
+    ProductListItem:
+      type: object
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        name: { type: string }
+        basePrice: { type: integer }
+        currency: { type: string }
+        category:
+          type: object
+          properties:
+            id: { type: string }
+            name: { type: string }
+            slug: { type: string }
+        image:
+          type: object
+          nullable: true
+          properties:
+            url: { type: string }
+            alt: { type: string, nullable: true }
+    ProductDetail:
+      allOf:
+        - $ref: "#/components/schemas/ProductListItem"
+        - type: object
+          properties:
+            description: { type: string }
+            active: { type: boolean }
+            images:
+              type: array
+              items: { $ref: "#/components/schemas/ProductImage" }
+            variants:
+              type: array
+              items: { $ref: "#/components/schemas/ProductVariant" }
+    CartLine:
+      type: object
+      properties:
+        variantId: { type: string }
+        productId: { type: string }
+        slug: { type: string }
+        name: { type: string }
+        sku: { type: string }
+        size: { type: string, nullable: true }
+        color: { type: string, nullable: true }
+        price: { type: integer }
+        currency: { type: string }
+        stock: { type: integer }
+        quantity: { type: integer }
+        subtotal: { type: integer }
+        image:
+          nullable: true
+          type: object
+          properties:
+            url: { type: string }
+            alt: { type: string, nullable: true }
+        outOfStock: { type: boolean }
+        cappedByStock: { type: boolean }
+    Cart:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/CartLine" }
+        count: { type: integer }
+        subtotal: { type: integer }
+        currency: { type: string, nullable: true }
+        notices:
+          type: array
+          items:
+            type: object
+
+paths:
+  # ---------------- Health ----------------
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      responses:
+        "200": { description: OK }
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Liveness probe alias
+      responses:
+        "200": { description: Process is alive }
+  /health/deep:
+    get:
+      tags: [Health]
+      summary: DB + Redis health check
+      responses:
+        "200": { description: OK }
+        "503": { description: A dependency is down }
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Deployment readiness with safe configuration capability flags
+      responses:
+        "200": { description: Database, Redis, and required configuration are ready }
+        "503": { description: A dependency is down or required configuration is incomplete }
+
+  # ---------------- Auth ----------------
+  /auth/session:
+    post:
+      tags: [Auth]
+      summary: Verify Firebase ID token, upsert User row
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [idToken]
+              properties:
+                idToken: { type: string }
+      responses:
+        "200":
+          description: User synced
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      email: { type: string }
+                      role: { type: string, enum: [CUSTOMER, ADMIN] }
+        "429":
+          description: Rate limited (20 req / 60s per IP)
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+  /auth/me:
+    get:
+      tags: [Auth]
+      security: [{ firebaseBearer: [] }]
+      responses:
+        "200": { description: Current user }
+        "401": { description: Missing / invalid / revoked token }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      security: [{ firebaseBearer: [] }]
+      responses:
+        "204": { description: Session revoked }
+
+  # ---------------- Products ----------------
+  /products:
+    get:
+      tags: [Products]
+      summary: Public product listing (Redis-cached, tag=catalog:list)
+      parameters:
+        - { name: category, in: query, schema: { type: string } }
+        - { name: minPrice, in: query, schema: { type: integer } }
+        - { name: maxPrice, in: query, schema: { type: integer } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, default: 12, maximum: 60 } }
+      responses:
+        "200": { description: OK }
+  /products/{slug}:
+    get:
+      tags: [Products]
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Product with variants + images
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProductDetail" }
+        "404": { description: Not found }
+  /categories:
+    get:
+      tags: [Products]
+      responses:
+        "200":
+          description: All categories
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Category" }
+
+  # ---------------- Search ----------------
+  /search:
+    get:
+      tags: [Search]
+      summary: Postgres FTS with filters + sort + cursor OR offset pagination
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 200 } }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: minPrice, in: query, schema: { type: integer } }
+        - { name: maxPrice, in: query, schema: { type: integer } }
+        - { name: sort, in: query, schema: { type: string, enum: [relevance, newest, price_asc, price_desc] } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer, default: 12, maximum: 60 } }
+      responses:
+        "200":
+          description: Ranked results + optional nextCursor
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProductListItem" }
+                  total: { type: integer }
+                  page: { type: integer, nullable: true }
+                  limit: { type: integer }
+                  totalPages: { type: integer, nullable: true }
+                  nextCursor: { type: string, nullable: true }
+                  sort: { type: string }
+                  q: { type: string, nullable: true }
+
+  # ---------------- Cart ----------------
+  /cart:
+    get:
+      tags: [Cart]
+      security: [{ firebaseBearer: [] }, { cartSessionCookie: [] }]
+      responses:
+        "200":
+          description: Cart (empty or populated)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Cart" }
+    delete:
+      tags: [Cart]
+      security: [{ firebaseBearer: [] }, { cartSessionCookie: [] }]
+      responses:
+        "204": { description: Cleared }
+  /cart/items:
+    post:
+      tags: [Cart]
+      security: [{ firebaseBearer: [] }, { cartSessionCookie: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [variantId]
+              properties:
+                variantId: { type: string }
+                quantity: { type: integer, default: 1, maximum: 99 }
+      responses:
+        "201":
+          description: Added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cart: { $ref: "#/components/schemas/Cart" }
+                  effective: { type: integer, description: "Actual qty added after stock clamp" }
+        "404": { description: Variant unavailable }
+        "409": { description: Out of stock }
+  /cart/items/{variantId}:
+    patch:
+      tags: [Cart]
+      security: [{ firebaseBearer: [] }, { cartSessionCookie: [] }]
+      parameters:
+        - { name: variantId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties:
+                quantity: { type: integer, minimum: 0, maximum: 99 }
+      responses:
+        "200": { description: Updated cart }
+    delete:
+      tags: [Cart]
+      security: [{ firebaseBearer: [] }, { cartSessionCookie: [] }]
+      parameters:
+        - { name: variantId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Updated cart }
+  /cart/merge:
+    post:
+      tags: [Cart]
+      security: [{ firebaseBearer: [] }]
+      summary: Merge cookie-based guest cart into user cart; clears cookie
+      responses:
+        "200": { description: Merged cart }
+        "401": { description: Login required }
+
+  # ---------------- Checkout ----------------
+  /checkout/config:
+    get:
+      tags: [Checkout]
+      summary: Whether Razorpay is configured, and dev-mode flag
+      responses:
+        "200":
+          description: Config snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  razorpayConfigured: { type: boolean }
+                  razorpayKeyId: { type: string, nullable: true }
+                  devMode: { type: boolean }
+  /checkout/session:
+    post:
+      tags: [Checkout]
+      security: [{ firebaseBearer: [] }]
+      summary: Reserve stock, create Order + Razorpay order in one transaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [address]
+              properties:
+                address:
+                  type: object
+                  required: [fullName, phone, line1, city, state, pincode]
+                  properties:
+                    fullName: { type: string }
+                    phone: { type: string }
+                    line1: { type: string }
+                    line2: { type: string, nullable: true }
+                    city: { type: string }
+                    state: { type: string }
+                    pincode: { type: string }
+                    country: { type: string, default: IN }
+      responses:
+        "201":
+          description: Checkout session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orderId: { type: string }
+                  amount: { type: integer }
+                  currency: { type: string }
+                  razorpay:
+                    type: object
+                    properties:
+                      orderId: { type: string }
+                      keyId: { type: string }
+        "409": { description: Insufficient stock }
+        "503": { description: Razorpay not configured }
+  /checkout/cancel:
+    post:
+      tags: [Checkout]
+      security: [{ firebaseBearer: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderId]
+              properties:
+                orderId: { type: string }
+      responses:
+        "204": { description: Cancelled (or already terminal) }
+  /checkout/dev-complete:
+    post:
+      tags: [Checkout]
+      security: [{ firebaseBearer: [] }]
+      summary: DEV ONLY — flips PENDING → PAID without going through Razorpay
+      responses:
+        "200": { description: OK (NODE_ENV != production) }
+        "404": { description: Not available in production }
+
+  # ---------------- Orders ----------------
+  /orders:
+    get:
+      tags: [Orders]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, default: 10 } }
+      responses:
+        "200": { description: Customer's orders (paginated) }
+  /orders/{id}:
+    get:
+      tags: [Orders]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Order detail with items, payment, and history
+        "404": { description: Not found }
+
+  # ---------------- Webhooks ----------------
+  /webhooks/razorpay:
+    post:
+      tags: [Webhooks]
+      summary: Razorpay-delivered payment event
+      description: |
+        Raw JSON body is HMAC-SHA256 verified against `RAZORPAY_WEBHOOK_SECRET`.
+        Idempotent — a duplicate event id returns 200 { deduped: true } via the
+        `WebhookEvent @@unique(provider, eventId)` guard. Successful events
+        enqueue a BullMQ job; the worker owns state transitions.
+      parameters:
+        - name: X-Razorpay-Signature
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "200":
+          description: Accepted (may include `deduped: true`)
+        "400":
+          description: Bad signature or malformed body
+
+  # ---------------- Admin ----------------
+  /admin/products:
+    get:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      responses:
+        "200": { description: Admin product list }
+    post:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      responses:
+        "201": { description: Product created }
+  /admin/products/{id}:
+    get:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Full admin product }
+    patch:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Updated }
+    delete:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Deleted }
+  /admin/products/{id}/variants:
+    post:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "201": { description: Variant created }
+  /admin/variants/{variantId}:
+    patch:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: variantId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Updated }
+    delete:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: variantId, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Deleted }
+  /admin/products/{id}/images:
+    post:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "201": { description: Image added }
+  /admin/images/{imageId}:
+    patch:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: imageId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Updated }
+    delete:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: imageId, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Deleted }
+  /admin/categories:
+    get:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      responses:
+        "200": { description: All categories with product counts }
+    post:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      responses:
+        "201": { description: Created }
+  /admin/categories/{id}:
+    patch:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Updated }
+    delete:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Deleted }
+        "409": { description: Has products — reassign first }
+  /admin/orders:
+    get:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/OrderStatus" }
+      responses:
+        "200": { description: Orders (filtered) }
+  /admin/orders/{id}:
+    get:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Order + allowedTransitions[]
+  /admin/orders/{id}/ship:
+    post:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: PAID → SHIPPED }
+        "409": { description: Invalid transition }
+  /admin/orders/{id}/deliver:
+    post:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: SHIPPED → DELIVERED }
+  /admin/orders/{id}/cancel:
+    post:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: PENDING → CANCELLED (releases stock) }
+  /admin/orders/{id}/refund:
+    post:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: PAID or DELIVERED → REFUNDED (calls Razorpay) }
+  /admin/analytics/summary:
+    get:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      responses:
+        "200":
+          description: Revenue today + orders-by-status + low-stock items
+  /admin/analytics/top-products:
+    get:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: days, in: query, schema: { type: integer, default: 30 } }
+        - { name: limit, in: query, schema: { type: integer, default: 5 } }
+      responses:
+        "200":
+          description: Top-selling products with units + revenue + pct-of-top window
+

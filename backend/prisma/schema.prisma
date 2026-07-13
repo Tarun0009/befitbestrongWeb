@@ -1,0 +1,569 @@
+// ecommerceWeb Prisma schema
+// Models are added phase-by-phase (see PLAN.md).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  CREATED
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum LoyaltyEntryType {
+  ORDER_EARN
+  ORDER_REFUND_REVERSAL
+  REFERRAL_BONUS
+  REFERRAL_REVERSAL
+  COUPON_REDEMPTION
+  REDEMPTION_RESTORE
+  ADMIN_ADJUSTMENT
+}
+
+enum ReferralStatus {
+  PENDING
+  REWARDED
+  CANCELLED
+}
+
+enum BundlePricingType {
+  FIXED_PRICE
+  PERCENTAGE_OFF
+}
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+enum SubscriptionRenewalStatus {
+  READY
+  STOCK_BLOCKED
+  SKIPPED
+  ORDERED
+}
+
+model User {
+  id          String    @id @default(cuid())
+  firebaseUid String    @unique
+  email       String    @unique
+  name        String?
+  role        Role      @default(CUSTOMER)
+  addresses   Address[]
+  orders        Order[]
+  reviews       Review[]
+  wishlistItems          WishlistItem[]
+  stockAlerts            StockAlert[]
+  pointsBalance          Int            @default(0)
+  lifetimePointsEarned   Int            @default(0)
+  lifetimePointsRedeemed Int            @default(0)
+  referralCode           String?        @unique
+  loyaltyEntries         LoyaltyEntry[]
+  referralsMade          Referral[]     @relation("ReferralReferrer")
+  referralReceived       Referral?      @relation("ReferralReferred")
+  assignedCoupons        Coupon[]        @relation("CouponAssignee")
+  subscriptions          UserSubscription[]
+  createdAt              DateTime       @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([email])
+}
+
+// -------- Catalog --------
+
+model Category {
+  id          String     @id @default(cuid())
+  name        String
+  slug        String     @unique
+  description String?
+  parentId    String?
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[] @relation("CategoryTree")
+  products    Product[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([parentId])
+}
+
+model Product {
+  id          String           @id @default(cuid())
+  name        String
+  slug        String           @unique
+  description String
+  categoryId  String
+  category    Category         @relation(fields: [categoryId], references: [id])
+  basePrice   Int              // stored in paise (₹) or cents — keeps math integer
+  // Optional MRP for strike-through pricing. When set and > basePrice, the
+  // storefront card renders a sale ribbon + percentage-off badge.
+  compareAtPrice Int?
+  // Free-form microcopy for the product card ("Dispatches in 24 hrs",
+  // "Ships from Delhi", etc.). Kept as free text so ops can iterate without
+  // schema migrations.
+  dispatchHint String?
+  currency      String           @default("INR")
+  active        Boolean          @default(true)
+  ratingAvg     Float            @default(0)
+  ratingCount   Int              @default(0)
+  variants      ProductVariant[]
+  images        ProductImage[]
+  reviews       Review[]
+  wishlistItems WishlistItem[]
+  createdAt     DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  // Full-text search vector. STORED generated column maintained by Postgres —
+  // Prisma never writes to it. Queried via $queryRaw in modules/search.
+  // The dbgenerated expression is authored by the search_fts migration; the
+  // string here just tells Prisma "there is a DB-side default, don't touch it".
+  tsv Unsupported("tsvector")? @default(dbgenerated("(setweight(to_tsvector('english'::regconfig, COALESCE(name, ''::text)), 'A'::\"char\") || setweight(to_tsvector('english'::regconfig, COALESCE(description, ''::text)), 'B'::\"char\"))"))
+
+  @@index([categoryId])
+  @@index([active, createdAt(sort: Desc)])
+  @@index([tsv], type: Gin)
+}
+
+model ProductVariant {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku       String   @unique
+  size      String?
+  color     String?
+  price       Int          // override product.basePrice when set (in same minor units)
+  stock       Int          @default(0)
+  stockAlerts StockAlert[]
+  bundleItems BundleItem[]
+  subscriptionPlans SubscriptionPlan[]
+  createdAt   DateTime     @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  alt       String?
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([productId, position])
+}
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([productId, createdAt(sort: Desc)])
+}
+
+model StockAlert {
+  id         String         @id @default(cuid())
+  userId     String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  variantId  String
+  variant    ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  active     Boolean        @default(true)
+  notifiedAt DateTime?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([userId, variantId])
+  @@index([variantId, active, createdAt(sort: Desc)])
+  @@index([userId, active, createdAt(sort: Desc)])
+}
+model Review {
+  id               String       @id @default(cuid())
+  productId        String
+  product          Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purchaseOrderId  String?
+  rating           Int
+  title            String?
+  comment          String
+  verifiedPurchase Boolean      @default(false)
+  status           ReviewStatus @default(PENDING)
+  moderatedAt      DateTime?
+  moderatedBy      String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@unique([productId, userId])
+  @@index([productId, status, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+}
+// -------- Checkout / Orders --------
+
+model Address {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName  String
+  phone     String
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  pincode   String
+  country   String   @default("IN")
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Order {
+  id                   String               @id @default(cuid())
+  userId               String?
+  user                 User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  contactEmail         String
+  guestAccessTokenHash String?              @unique
+  status               OrderStatus          @default(PENDING)
+  subtotal        Int                  // paise
+  discount        Int                  @default(0)
+  bundleDiscount  Int                  @default(0)
+  couponDiscount  Int                  @default(0)
+  couponCode      String?
+  shipping        Int                  @default(0)
+  tax             Int                  @default(0)
+  total           Int
+  currency        String               @default("INR")
+  // Snapshot of the shipping address at order creation — the source Address
+  // row can change or vanish later; the order stays truthful.
+  addressSnapshot Json
+  items           OrderItem[]
+  payment         Payment?
+  history         OrderStatusHistory[]
+  providerOrderId String?              @unique  // Razorpay order id
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status])
+}
+
+model OrderStatusHistory {
+  id         String       @id @default(cuid())
+  orderId    String
+  order      Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  // Who caused this transition. `actorKind` is one of "system" | "customer" | "admin";
+  // `actorId` is the User.id when the actor is a customer or admin, null for system.
+  actorKind  String
+  actorId    String?
+  note       String?
+  createdAt  DateTime     @default(now())
+
+  @@index([orderId, createdAt(sort: Desc)])
+}
+
+model OrderItem {
+  id              String @id @default(cuid())
+  orderId         String
+  order           Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variantId       String
+  // Snapshot of product + variant details at time of purchase.
+  productSnapshot Json
+  unitPrice       Int
+  quantity        Int
+  subtotal        Int
+
+  @@index([orderId])
+  @@index([variantId])
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  orderId           String        @unique
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provider          String        // "razorpay"
+  providerOrderId   String
+  providerPaymentId String?
+  amount            Int
+  currency          String        @default("INR")
+  status            PaymentStatus @default(CREATED)
+  rawPayload        Json?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([providerOrderId])
+  @@index([providerPaymentId])
+}
+
+model WebhookEvent {
+  id          String    @id @default(cuid())
+  provider    String    // "razorpay"
+  eventId     String    // provider-side event id (unique per provider)
+  eventType   String
+  signature   String?
+  payload     Json
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([provider, eventId])
+  @@index([provider, eventType])
+}
+
+model Coupon {
+  id           String     @id @default(cuid())
+  code         String     @unique
+  description  String?
+  type         CouponType
+  value        Int
+  minSubtotal  Int        @default(0)
+  maxDiscount  Int?
+  startsAt     DateTime?
+  endsAt       DateTime?
+  active         Boolean    @default(true)
+  maxUses        Int?
+  usedCount      Int        @default(0)
+  assignedUserId String?
+  assignedUser   User?      @relation("CouponAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  source         String     @default("MANUAL")
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([active, startsAt, endsAt])
+  @@index([assignedUserId, active])
+}
+
+model LoyaltyConfig {
+  id                       String   @id @default("main")
+  enabled                  Boolean  @default(true)
+  earnPointsPerRupee       Int      @default(1)
+  redeemPointsPerRupee     Int      @default(10)
+  minRedeemPoints          Int      @default(100)
+  maxRedeemPointsPerCoupon Int?
+  referralBonusReferrer    Int      @default(250)
+  referralBonusReferred    Int      @default(100)
+  couponValidityDays       Int      @default(30)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+model LoyaltyEntry {
+  id             String           @id @default(cuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           LoyaltyEntryType
+  points         Int
+  orderId        String?
+  couponCode     String?
+  referralId     String?
+  description    String
+  idempotencyKey String           @unique
+  metadata       Json?
+  createdAt      DateTime         @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([orderId, type])
+  @@index([referralId, type])
+}
+
+model Referral {
+  id                 String         @id @default(cuid())
+  referrerId         String
+  referrer           User           @relation("ReferralReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredUserId     String         @unique
+  referredUser       User           @relation("ReferralReferred", fields: [referredUserId], references: [id], onDelete: Cascade)
+  code               String
+  status             ReferralStatus @default(PENDING)
+  qualifyingOrderId  String?        @unique
+  referrerBonus      Int?
+  referredBonus      Int?
+  rewardedAt         DateTime?
+  cancelledAt        DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@index([referrerId, status, createdAt(sort: Desc)])
+  @@index([code])
+}
+model Bundle {
+  id          String            @id @default(cuid())
+  name        String
+  slug        String            @unique
+  description String
+  imageUrl    String?
+  active      Boolean           @default(true)
+  pricingType BundlePricingType
+  value       Int
+  startsAt    DateTime?
+  endsAt      DateTime?
+  items       BundleItem[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([active, createdAt(sort: Desc)])
+}
+
+model BundleItem {
+  id        String         @id @default(cuid())
+  bundleId  String
+  bundle    Bundle         @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  quantity  Int            @default(1)
+  position  Int            @default(0)
+
+  @@unique([bundleId, variantId])
+  @@index([variantId])
+}
+model SubscriptionPlan {
+  id                 String             @id @default(cuid())
+  name               String
+  variantId          String
+  variant            ProductVariant     @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  discountPercent    Int                @default(10)
+  allowedFrequencies Int[]              @default([30, 60, 90])
+  active             Boolean            @default(true)
+  subscriptions      UserSubscription[]
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@unique([variantId])
+  @@index([active, createdAt(sort: Desc)])
+}
+
+model UserSubscription {
+  id                 String                   @id @default(cuid())
+  userId             String
+  user               User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId             String
+  plan               SubscriptionPlan         @relation(fields: [planId], references: [id], onDelete: Restrict)
+  planNameSnapshot   String
+  discountPercent    Int
+  quantity           Int                      @default(1)
+  frequencyDays      Int
+  status             SubscriptionStatus       @default(ACTIVE)
+  nextOrderAt        DateTime
+  contactEmail       String
+  shippingSnapshot   Json
+  createdFromOrderId String?
+  pausedAt           DateTime?
+  cancelledAt        DateTime?
+  renewals           SubscriptionRenewal[]
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  @@index([userId, status, nextOrderAt])
+  @@index([status, nextOrderAt])
+  @@index([planId])
+}
+
+model SubscriptionRenewal {
+  id                 String                    @id @default(cuid())
+  subscriptionId     String
+  subscription       UserSubscription          @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  scheduledFor       DateTime
+  status             SubscriptionRenewalStatus
+  unitPriceSnapshot  Int
+  discountedUnitPrice Int
+  quantity           Int
+  notifiedAt         DateTime?
+  orderId            String?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+
+  @@unique([subscriptionId, scheduledFor])
+  @@index([status, scheduledFor])
+}
+// -------- CMS / Site config --------
+
+// Singleton table — one row keyed at id="main". Holds admin-editable homepage
+// + announcement bar content so marketing can iterate without deploys.
+model SiteConfig {
+  id                  String   @id @default("main")
+
+  // Announcement bar
+  announcementEnabled Boolean  @default(true)
+  announcementText    String   @default("Free shipping on orders over ₹999")
+  announcementCode    String?  // optional promo code chip
+  announcementCtaText String?  @default("Shop now")
+  announcementCtaHref String?  @default("/shop")
+
+  // Hero
+  heroEyebrow         String   @default("beFitBeStrong")
+  heroHeadline        String   @default("Kit for the work.")
+  heroHighlight       String?  @default("No filler.")
+  heroSubtitle        String   @default("Supplements, home-gym equipment, apparel, and accessories — curated for people who train.")
+  heroPrimaryLabel    String   @default("Shop the range →")
+  heroPrimaryHref     String   @default("/shop")
+  heroSecondaryLabel  String?  @default("Browse supplements")
+  heroSecondaryHref   String?  @default("/shop?category=supplements")
+
+  // Featured products — ordered list of Product ids surfaced on the home page.
+  featuredProductIds  String[] @default([])
+
+  // Multi-slide hero carousel. When empty, the storefront falls back to the
+  // legacy single-hero fields above so the homepage never renders blank.
+  // Shape: [{ eyebrow, headline, highlight?, subtitle, primaryLabel,
+  //           primaryHref, secondaryLabel?, secondaryHref?, imageUrl? }]
+  heroSlides          Json     @default("[]")
+
+  // Reward tiers ticker under the header. Empty array → ticker hidden.
+  // Shape: [{ threshold: number (rupees), reward: string }]
+  rewardTiers         Json     @default("[]")
+
+  // Spotlight section — e.g., "New in supplements" callout.
+  spotlightEnabled    Boolean  @default(true)
+  spotlightEyebrow    String?  @default("New in")
+  spotlightTitle      String?  @default("Certified. Tested. Real dosing.")
+  spotlightBody       String?  @default("Every supplement we stock lists its third-party testing. We won't sell proprietary blends or hidden dosages.")
+  spotlightCtaLabel   String?  @default("Shop supplements")
+  spotlightCtaHref    String?  @default("/shop?category=supplements")
+
+  updatedAt           DateTime @updatedAt
+  createdAt           DateTime @default(now())
+}
+
+
+
+
+

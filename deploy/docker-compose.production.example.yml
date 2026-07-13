@@ -1,0 +1,114 @@
+name: befitbestrong
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: befitbestrong
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: befitbestrong
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U befitbestrong -d befitbestrong"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"
+    volumes:
+      - redis_data:/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    image: befitbestrong-api:${RELEASE_SHA:-local}
+    build:
+      context: ../backend
+    command: ["./node_modules/.bin/prisma", "migrate", "deploy"]
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://befitbestrong:${POSTGRES_PASSWORD}@postgres:5432/befitbestrong
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+  backend:
+    image: befitbestrong-api:${RELEASE_SHA:-local}
+    build:
+      context: ../backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      APP_ENV: production
+      PORT: 4000
+      LOG_LEVEL: info
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      RELEASE_SHA: ${RELEASE_SHA:-local-build}
+      DATABASE_URL: postgresql://befitbestrong:${POSTGRES_PASSWORD}@postgres:5432/befitbestrong
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      CORS_ORIGIN: ${PUBLIC_SITE_URL:?Set PUBLIC_SITE_URL}
+      FRONTEND_URL: ${PUBLIC_SITE_URL:?Set PUBLIC_SITE_URL}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:?Set FIREBASE_PROJECT_ID}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL:?Set FIREBASE_CLIENT_EMAIL}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY:?Set FIREBASE_PRIVATE_KEY}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:?Set a live RAZORPAY_KEY_ID}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:?Set RAZORPAY_KEY_SECRET}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:?Set RAZORPAY_WEBHOOK_SECRET}
+      EMAIL_DELIVERY_REQUIRED: ${EMAIL_DELIVERY_REQUIRED:-false}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+    ports:
+      - "127.0.0.1:4000:4000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks: [internal]
+
+  frontend:
+    image: befitbestrong-web:${RELEASE_SHA:-local}
+    build:
+      context: ../frontend
+      args:
+        NEXT_PUBLIC_APP_ENV: production
+        NEXT_PUBLIC_RELEASE_SHA: ${RELEASE_SHA:-local-build}
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:?Set PUBLIC_API_URL}
+        NEXT_PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:?Set PUBLIC_SITE_URL}
+        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY:?Set Firebase web config}
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:?Set Firebase web config}
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID:?Set Firebase web config}
+        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:?Set Firebase web config}
+        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:?Set Firebase web config}
+        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID:?Set Firebase web config}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3005:3005"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [internal]
+
+networks:
+  internal:
+
+volumes:
+  postgres_data:
+  redis_data:
+
