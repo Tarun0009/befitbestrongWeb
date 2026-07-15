@@ -21,14 +21,23 @@ const requestBody = z.object({
     .default("storefront"),
 });
 
-router.get("/:pincode", async (req, res, next) => {
-  try {
-    const pincode = pincodeSchema.parse(req.params.pincode);
-    res.json(await getServiceability(pincode));
-  } catch (err) {
-    next(err);
-  }
-});
+router.get(
+  "/:pincode",
+  rateLimit({
+    keyPrefix: "serviceability-lookup",
+    max: 60,
+    windowSec: 60 * 60,
+    keyBy: (req) => req.auth?.userId ?? req.ip ?? "unknown",
+  }),
+  async (req, res, next) => {
+    try {
+      const pincode = pincodeSchema.parse(req.params.pincode);
+      res.json(await getServiceability(pincode));
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 router.post(
   "/requests",
