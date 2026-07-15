@@ -8,6 +8,14 @@ import {
 } from "./serviceability.service.js";
 
 const router = Router();
+router.use(
+  rateLimit({
+    keyPrefix: "serviceability-preauth",
+    max: 300,
+    windowSec: 60,
+    keyBy: (req) => req.ip ?? "unknown",
+  }),
+);
 router.use(optionalAuth);
 router.use(
   rateLimit({
