@@ -44,6 +44,13 @@ const serviceabilityLookupLimiter = rateLimit({
     `${req.auth?.userId ?? req.ip ?? "unknown"}:${String(req.params.pincode ?? "")}`,
 });
 
+const serviceAreaRequestLimiter = rateLimit({
+  keyPrefix: "service-area-request",
+  max: 10,
+  windowSec: 60 * 60,
+  keyBy: (req) => req.auth?.userId ?? req.ip ?? "unknown",
+});
+
 router.get(
   "/:pincode",
   serviceabilityLookupLimiter,
@@ -59,12 +66,7 @@ router.get(
 
 router.post(
   "/requests",
-  rateLimit({
-    keyPrefix: "service-area-request",
-    max: 10,
-    windowSec: 60 * 60,
-    keyBy: (req) => req.auth?.userId ?? req.ip ?? "unknown",
-  }),
+  serviceAreaRequestLimiter,
   async (req, res, next) => {
     try {
       const body = requestBody.parse(req.body);
