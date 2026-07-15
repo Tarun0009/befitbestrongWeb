@@ -4,6 +4,7 @@ import { prisma } from "../../config/db.js";
 import { logger } from "../../config/logger.js";
 
 const SUBJECTS: Partial<Record<OrderStatus, string>> = {
+  CONFIRMED: "Your beFitBeStrong COD order is confirmed",
   PAID: "Your beFitBeStrong order is confirmed",
   SHIPPED: "Your beFitBeStrong order has shipped",
   DELIVERED: "Your beFitBeStrong order was delivered",

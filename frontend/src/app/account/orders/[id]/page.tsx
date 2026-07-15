@@ -175,6 +175,12 @@ function Inner() {
                 <dt className="text-muted-foreground">Shipping</dt>
                 <dd className="tabular-nums">{formatINR(order.shipping)}</dd>
               </div>
+              {order.paymentFee > 0 && (
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">COD handling fee</dt>
+                  <dd className="tabular-nums">{formatINR(order.paymentFee)}</dd>
+                </div>
+              )}
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Tax</dt>
                 <dd className="tabular-nums">{formatINR(order.tax)}</dd>
@@ -190,6 +196,10 @@ function Inner() {
             <section className="rounded-lg border border-border p-5">
               <h2 className="font-medium">Payment</h2>
               <dl className="mt-3 space-y-2 text-sm">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted-foreground">Method</dt>
+                  <dd>{order.paymentMethod === "COD" ? "Cash on delivery" : "Paid online"}</dd>
+                </div>
                 <div className="flex justify-between gap-3">
                   <dt className="text-muted-foreground">Provider</dt>
                   <dd className="capitalize">{order.payment.provider}</dd>
@@ -250,6 +260,8 @@ function StatusPill({ status }: { status: OrderStatus }) {
   const tone: Record<OrderStatus, string> = {
     PENDING:
       "bg-orange-500/10 text-orange-600 ring-1 ring-inset ring-orange-500/20",
+    CONFIRMED:
+      "bg-blue-500/10 text-blue-700 ring-1 ring-inset ring-blue-500/20",
     PAID:
       "bg-emerald-500/10 text-emerald-600 ring-1 ring-inset ring-emerald-500/20",
     SHIPPED:
@@ -266,5 +278,4 @@ function StatusPill({ status }: { status: OrderStatus }) {
     </span>
   );
 }
-
 

@@ -5,6 +5,7 @@ import { HttpError } from "../../middleware/errorHandler.js";
 import { invalidateCatalog } from "../products/products.service.js";
 import { logger } from "../../config/logger.js";
 import { sendBackInStockNotifications } from "../wishlist/stockAlertEmail.service.js";
+import { requireAtLeastOneField } from "../../lib/validation.js";
 
 const router = Router();
 
@@ -19,9 +20,12 @@ function slugify(text: string): string {
 
 const categoryBody = z.object({
   name: z.string().min(1),
-  description: z.string().optional(),
-  parentId: z.string().cuid().optional(),
+  description: z.string().nullable().optional(),
+  parentId: z.string().cuid().nullable().optional(),
 });
+const categoryPatchBody = requireAtLeastOneField(
+  categoryBody.partial().strict(),
+);
 
 router.get("/categories", async (_req, res, next) => {
   try {
@@ -65,7 +69,7 @@ router.post("/categories", async (req, res, next) => {
 router.patch("/categories/:id", async (req, res, next) => {
   try {
     const id = z.string().cuid().parse(req.params.id);
-    const body = categoryBody.partial().parse(req.body);
+    const body = categoryPatchBody.parse(req.body);
     const category = await prisma.category.update({
       where: { id },
       data: {
@@ -106,8 +110,8 @@ router.delete("/categories/:id", async (req, res, next) => {
 
 const variantBody = z.object({
   sku: z.string().min(1),
-  size: z.string().optional(),
-  color: z.string().optional(),
+  size: z.string().nullable().optional(),
+  color: z.string().nullable().optional(),
   price: z.number().int().nonnegative(),
   stock: z.number().int().nonnegative(),
 });
@@ -133,6 +137,12 @@ const productBody = z.object({
     .default([]),
   variants: z.array(variantBody).default([]),
 });
+const productPatchBody = requireAtLeastOneField(
+  productBody.omit({ images: true, variants: true }).partial().strict(),
+);
+const variantPatchBody = requireAtLeastOneField(
+  variantBody.partial().strict(),
+);
 
 router.get("/products", async (req, res, next) => {
   try {
@@ -245,7 +255,7 @@ router.get("/products/:id", async (req, res, next) => {
 router.patch("/products/:id", async (req, res, next) => {
   try {
     const id = z.string().cuid().parse(req.params.id);
-    const body = productBody.partial().parse(req.body);
+    const body = productPatchBody.parse(req.body);
     const product = await prisma.product.update({
       where: { id },
       data: {
@@ -302,7 +312,7 @@ router.post("/products/:id/variants", async (req, res, next) => {
 router.patch("/variants/:variantId", async (req, res, next) => {
   try {
     const variantId = z.string().cuid().parse(req.params.variantId);
-    const body = variantBody.partial().parse(req.body);
+    const body = variantPatchBody.parse(req.body);
     const current = await prisma.productVariant.findUnique({
       where: { id: variantId },
       select: { stock: true },
@@ -382,11 +392,15 @@ router.post("/products/:id/images", async (req, res, next) => {
   }
 });
 
-const imagePatchBody = z.object({
-  url: z.string().url().optional(),
-  alt: z.string().max(200).nullable().optional(),
-  position: z.number().int().nonnegative().optional(),
-});
+const imagePatchBody = requireAtLeastOneField(
+  z
+    .object({
+      url: z.string().url().optional(),
+      alt: z.string().max(200).nullable().optional(),
+      position: z.number().int().nonnegative().optional(),
+    })
+    .strict(),
+);
 
 router.patch("/images/:imageId", async (req, res, next) => {
   try {

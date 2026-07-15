@@ -17,6 +17,7 @@ enum Role {
 
 enum OrderStatus {
   PENDING
+  CONFIRMED
   PAID
   SHIPPED
   DELIVERED
@@ -31,6 +32,22 @@ enum PaymentStatus {
   CAPTURED
   FAILED
   REFUNDED
+}
+
+enum PaymentMethod {
+  PREPAID
+  COD
+}
+
+enum ServiceZone {
+  DELHI
+  NOIDA
+  GHAZIABAD
+}
+
+enum AdminNotificationType {
+  ORDER_PAID
+  ORDER_COD_PLACED
 }
 
 enum CouponType {
@@ -64,6 +81,7 @@ enum BundlePricingType {
   FIXED_PRICE
   PERCENTAGE_OFF
 }
+
 enum SubscriptionStatus {
   ACTIVE
   PAUSED
@@ -78,27 +96,29 @@ enum SubscriptionRenewalStatus {
 }
 
 model User {
-  id          String    @id @default(cuid())
-  firebaseUid String    @unique
-  email       String    @unique
-  name        String?
-  role        Role      @default(CUSTOMER)
-  addresses   Address[]
-  orders        Order[]
-  reviews       Review[]
-  wishlistItems          WishlistItem[]
-  stockAlerts            StockAlert[]
-  pointsBalance          Int            @default(0)
-  lifetimePointsEarned   Int            @default(0)
-  lifetimePointsRedeemed Int            @default(0)
-  referralCode           String?        @unique
-  loyaltyEntries         LoyaltyEntry[]
-  referralsMade          Referral[]     @relation("ReferralReferrer")
-  referralReceived       Referral?      @relation("ReferralReferred")
-  assignedCoupons        Coupon[]        @relation("CouponAssignee")
-  subscriptions          UserSubscription[]
-  createdAt              DateTime       @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                        String                     @id @default(cuid())
+  firebaseUid               String                     @unique
+  email                     String                     @unique
+  name                      String?
+  role                      Role                       @default(CUSTOMER)
+  addresses                 Address[]
+  orders                    Order[]
+  reviews                   Review[]
+  wishlistItems             WishlistItem[]
+  stockAlerts               StockAlert[]
+  pointsBalance             Int                        @default(0)
+  lifetimePointsEarned      Int                        @default(0)
+  lifetimePointsRedeemed    Int                        @default(0)
+  referralCode              String?                    @unique
+  loyaltyEntries            LoyaltyEntry[]
+  referralsMade             Referral[]                 @relation("ReferralReferrer")
+  referralReceived          Referral?                  @relation("ReferralReferred")
+  assignedCoupons           Coupon[]                   @relation("CouponAssignee")
+  subscriptions             UserSubscription[]
+  serviceAreaRequests       ServiceAreaRequest[]
+  adminNotificationReceipts AdminNotificationReceipt[]
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
 
   @@index([email])
 }
@@ -121,30 +141,31 @@ model Category {
 }
 
 model Product {
-  id          String           @id @default(cuid())
-  name        String
-  slug        String           @unique
-  description String
-  categoryId  String
-  category    Category         @relation(fields: [categoryId], references: [id])
-  basePrice   Int              // stored in paise (₹) or cents — keeps math integer
+  id                  String               @id @default(cuid())
+  name                String
+  slug                String               @unique
+  description         String
+  categoryId          String
+  category            Category             @relation(fields: [categoryId], references: [id])
+  basePrice           Int // stored in paise (₹) or cents — keeps math integer
   // Optional MRP for strike-through pricing. When set and > basePrice, the
   // storefront card renders a sale ribbon + percentage-off badge.
-  compareAtPrice Int?
+  compareAtPrice      Int?
   // Free-form microcopy for the product card ("Dispatches in 24 hrs",
   // "Ships from Delhi", etc.). Kept as free text so ops can iterate without
   // schema migrations.
-  dispatchHint String?
-  currency      String           @default("INR")
-  active        Boolean          @default(true)
-  ratingAvg     Float            @default(0)
-  ratingCount   Int              @default(0)
-  variants      ProductVariant[]
-  images        ProductImage[]
-  reviews       Review[]
-  wishlistItems WishlistItem[]
-  createdAt     DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  dispatchHint        String?
+  currency            String               @default("INR")
+  active              Boolean              @default(true)
+  ratingAvg           Float                @default(0)
+  ratingCount         Int                  @default(0)
+  variants            ProductVariant[]
+  images              ProductImage[]
+  reviews             Review[]
+  wishlistItems       WishlistItem[]
+  serviceAreaRequests ServiceAreaRequest[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 
   // Full-text search vector. STORED generated column maintained by Postgres —
   // Prisma never writes to it. Queried via $queryRaw in modules/search.
@@ -158,19 +179,19 @@ model Product {
 }
 
 model ProductVariant {
-  id        String   @id @default(cuid())
-  productId String
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  sku       String   @unique
-  size      String?
-  color     String?
-  price       Int          // override product.basePrice when set (in same minor units)
-  stock       Int          @default(0)
-  stockAlerts StockAlert[]
-  bundleItems BundleItem[]
+  id                String             @id @default(cuid())
+  productId         String
+  product           Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku               String             @unique
+  size              String?
+  color             String?
+  price             Int // override product.basePrice when set (in same minor units)
+  stock             Int                @default(0)
+  stockAlerts       StockAlert[]
+  bundleItems       BundleItem[]
   subscriptionPlans SubscriptionPlan[]
-  createdAt   DateTime     @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   @@index([productId])
 }
@@ -214,6 +235,7 @@ model StockAlert {
   @@index([variantId, active, createdAt(sort: Desc)])
   @@index([userId, active, createdAt(sort: Desc)])
 }
+
 model Review {
   id               String       @id @default(cuid())
   productId        String
@@ -236,6 +258,7 @@ model Review {
   @@index([status, createdAt(sort: Desc)])
   @@index([userId, createdAt(sort: Desc)])
 }
+
 // -------- Checkout / Orders --------
 
 model Address {
@@ -257,6 +280,46 @@ model Address {
   @@index([userId])
 }
 
+model ServiceArea {
+  id                       String      @id @default(cuid())
+  pincode                  String      @unique
+  zone                     ServiceZone
+  city                     String
+  state                    String
+  active                   Boolean     @default(true)
+  prepaidEnabled           Boolean     @default(true)
+  codEnabled               Boolean     @default(true)
+  codMaxOrderAmount        Int         @default(500000)
+  codFee                   Int         @default(0)
+  estimatedDeliveryMinDays Int         @default(1)
+  estimatedDeliveryMaxDays Int         @default(3)
+  createdAt                DateTime    @default(now())
+  updatedAt                DateTime    @updatedAt
+
+  @@index([active, zone])
+}
+
+model ServiceAreaRequest {
+  id              String   @id @default(cuid())
+  pincode         String
+  requesterHash   String
+  email           String?
+  phone           String?
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  productId       String?
+  product         Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  source          String   @default("storefront")
+  attemptCount    Int      @default(1)
+  createdAt       DateTime @default(now())
+  lastRequestedAt DateTime @default(now())
+
+  @@unique([pincode, requesterHash])
+  @@index([pincode, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([productId, createdAt(sort: Desc)])
+}
+
 model Order {
   id                   String               @id @default(cuid())
   userId               String?
@@ -264,24 +327,27 @@ model Order {
   contactEmail         String
   guestAccessTokenHash String?              @unique
   status               OrderStatus          @default(PENDING)
-  subtotal        Int                  // paise
-  discount        Int                  @default(0)
-  bundleDiscount  Int                  @default(0)
-  couponDiscount  Int                  @default(0)
-  couponCode      String?
-  shipping        Int                  @default(0)
-  tax             Int                  @default(0)
-  total           Int
-  currency        String               @default("INR")
+  paymentMethod        PaymentMethod        @default(PREPAID)
+  subtotal             Int // paise
+  discount             Int                  @default(0)
+  bundleDiscount       Int                  @default(0)
+  couponDiscount       Int                  @default(0)
+  couponCode           String?
+  shipping             Int                  @default(0)
+  paymentFee           Int                  @default(0)
+  tax                  Int                  @default(0)
+  total                Int
+  currency             String               @default("INR")
   // Snapshot of the shipping address at order creation — the source Address
   // row can change or vanish later; the order stays truthful.
-  addressSnapshot Json
-  items           OrderItem[]
-  payment         Payment?
-  history         OrderStatusHistory[]
-  providerOrderId String?              @unique  // Razorpay order id
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+  addressSnapshot      Json
+  items                OrderItem[]
+  payment              Payment?
+  history              OrderStatusHistory[]
+  adminNotifications   AdminNotification[]
+  providerOrderId      String?              @unique // Razorpay order id
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([status])
@@ -322,7 +388,7 @@ model Payment {
   id                String        @id @default(cuid())
   orderId           String        @unique
   order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  provider          String        // "razorpay"
+  provider          String // "razorpay"
   providerOrderId   String
   providerPaymentId String?
   amount            Int
@@ -336,10 +402,36 @@ model Payment {
   @@index([providerPaymentId])
 }
 
+model AdminNotification {
+  id        String                     @id @default(cuid())
+  type      AdminNotificationType
+  orderId   String
+  order     Order                      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  metadata  Json?
+  createdAt DateTime                   @default(now())
+  receipts  AdminNotificationReceipt[]
+
+  @@unique([type, orderId])
+  @@index([createdAt(sort: Desc)])
+}
+
+model AdminNotificationReceipt {
+  notificationId String
+  notification   AdminNotification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt         DateTime          @default(now())
+
+  @@id([notificationId, userId])
+  @@index([userId, readAt(sort: Desc)])
+}
+
 model WebhookEvent {
   id          String    @id @default(cuid())
-  provider    String    // "razorpay"
-  eventId     String    // provider-side event id (unique per provider)
+  provider    String // "razorpay"
+  eventId     String // provider-side event id (unique per provider)
   eventType   String
   signature   String?
   payload     Json
@@ -351,15 +443,15 @@ model WebhookEvent {
 }
 
 model Coupon {
-  id           String     @id @default(cuid())
-  code         String     @unique
-  description  String?
-  type         CouponType
-  value        Int
-  minSubtotal  Int        @default(0)
-  maxDiscount  Int?
-  startsAt     DateTime?
-  endsAt       DateTime?
+  id             String     @id @default(cuid())
+  code           String     @unique
+  description    String?
+  type           CouponType
+  value          Int
+  minSubtotal    Int        @default(0)
+  maxDiscount    Int?
+  startsAt       DateTime?
+  endsAt         DateTime?
   active         Boolean    @default(true)
   maxUses        Int?
   usedCount      Int        @default(0)
@@ -407,24 +499,25 @@ model LoyaltyEntry {
 }
 
 model Referral {
-  id                 String         @id @default(cuid())
-  referrerId         String
-  referrer           User           @relation("ReferralReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
-  referredUserId     String         @unique
-  referredUser       User           @relation("ReferralReferred", fields: [referredUserId], references: [id], onDelete: Cascade)
-  code               String
-  status             ReferralStatus @default(PENDING)
-  qualifyingOrderId  String?        @unique
-  referrerBonus      Int?
-  referredBonus      Int?
-  rewardedAt         DateTime?
-  cancelledAt        DateTime?
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
+  id                String         @id @default(cuid())
+  referrerId        String
+  referrer          User           @relation("ReferralReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredUserId    String         @unique
+  referredUser      User           @relation("ReferralReferred", fields: [referredUserId], references: [id], onDelete: Cascade)
+  code              String
+  status            ReferralStatus @default(PENDING)
+  qualifyingOrderId String?        @unique
+  referrerBonus     Int?
+  referredBonus     Int?
+  rewardedAt        DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   @@index([referrerId, status, createdAt(sort: Desc)])
   @@index([code])
 }
+
 model Bundle {
   id          String            @id @default(cuid())
   name        String
@@ -455,6 +548,7 @@ model BundleItem {
   @@unique([bundleId, variantId])
   @@index([variantId])
 }
+
 model SubscriptionPlan {
   id                 String             @id @default(cuid())
   name               String
@@ -472,16 +566,16 @@ model SubscriptionPlan {
 }
 
 model UserSubscription {
-  id                 String                   @id @default(cuid())
+  id                 String                @id @default(cuid())
   userId             String
-  user               User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user               User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   planId             String
-  plan               SubscriptionPlan         @relation(fields: [planId], references: [id], onDelete: Restrict)
+  plan               SubscriptionPlan      @relation(fields: [planId], references: [id], onDelete: Restrict)
   planNameSnapshot   String
   discountPercent    Int
-  quantity           Int                      @default(1)
+  quantity           Int                   @default(1)
   frequencyDays      Int
-  status             SubscriptionStatus       @default(ACTIVE)
+  status             SubscriptionStatus    @default(ACTIVE)
   nextOrderAt        DateTime
   contactEmail       String
   shippingSnapshot   Json
@@ -489,8 +583,8 @@ model UserSubscription {
   pausedAt           DateTime?
   cancelledAt        DateTime?
   renewals           SubscriptionRenewal[]
-  createdAt          DateTime                 @default(now())
-  updatedAt          DateTime                 @updatedAt
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
 
   @@index([userId, status, nextOrderAt])
   @@index([status, nextOrderAt])
@@ -498,72 +592,68 @@ model UserSubscription {
 }
 
 model SubscriptionRenewal {
-  id                 String                    @id @default(cuid())
-  subscriptionId     String
-  subscription       UserSubscription          @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
-  scheduledFor       DateTime
-  status             SubscriptionRenewalStatus
-  unitPriceSnapshot  Int
+  id                  String                    @id @default(cuid())
+  subscriptionId      String
+  subscription        UserSubscription          @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  scheduledFor        DateTime
+  status              SubscriptionRenewalStatus
+  unitPriceSnapshot   Int
   discountedUnitPrice Int
-  quantity           Int
-  notifiedAt         DateTime?
-  orderId            String?
-  createdAt          DateTime                  @default(now())
-  updatedAt          DateTime                  @updatedAt
+  quantity            Int
+  notifiedAt          DateTime?
+  orderId             String?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
 
   @@unique([subscriptionId, scheduledFor])
   @@index([status, scheduledFor])
 }
+
 // -------- CMS / Site config --------
 
 // Singleton table — one row keyed at id="main". Holds admin-editable homepage
 // + announcement bar content so marketing can iterate without deploys.
 model SiteConfig {
-  id                  String   @id @default("main")
+  id String @id @default("main")
 
   // Announcement bar
-  announcementEnabled Boolean  @default(true)
-  announcementText    String   @default("Free shipping on orders over ₹999")
-  announcementCode    String?  // optional promo code chip
-  announcementCtaText String?  @default("Shop now")
-  announcementCtaHref String?  @default("/shop")
+  announcementEnabled Boolean @default(true)
+  announcementText    String  @default("Free shipping on orders over ₹999")
+  announcementCode    String? // optional promo code chip
+  announcementCtaText String? @default("Shop now")
+  announcementCtaHref String? @default("/shop")
 
   // Hero
-  heroEyebrow         String   @default("beFitBeStrong")
-  heroHeadline        String   @default("Kit for the work.")
-  heroHighlight       String?  @default("No filler.")
-  heroSubtitle        String   @default("Supplements, home-gym equipment, apparel, and accessories — curated for people who train.")
-  heroPrimaryLabel    String   @default("Shop the range →")
-  heroPrimaryHref     String   @default("/shop")
-  heroSecondaryLabel  String?  @default("Browse supplements")
-  heroSecondaryHref   String?  @default("/shop?category=supplements")
+  heroEyebrow        String  @default("beFitBeStrong")
+  heroHeadline       String  @default("Kit for the work.")
+  heroHighlight      String? @default("No filler.")
+  heroSubtitle       String  @default("Supplements, home-gym equipment, apparel, and accessories — curated for people who train.")
+  heroPrimaryLabel   String  @default("Shop the range →")
+  heroPrimaryHref    String  @default("/shop")
+  heroSecondaryLabel String? @default("Browse supplements")
+  heroSecondaryHref  String? @default("/shop?category=supplements")
 
   // Featured products — ordered list of Product ids surfaced on the home page.
-  featuredProductIds  String[] @default([])
+  featuredProductIds String[] @default([])
 
   // Multi-slide hero carousel. When empty, the storefront falls back to the
   // legacy single-hero fields above so the homepage never renders blank.
   // Shape: [{ eyebrow, headline, highlight?, subtitle, primaryLabel,
   //           primaryHref, secondaryLabel?, secondaryHref?, imageUrl? }]
-  heroSlides          Json     @default("[]")
+  heroSlides Json @default("[]")
 
   // Reward tiers ticker under the header. Empty array → ticker hidden.
   // Shape: [{ threshold: number (rupees), reward: string }]
-  rewardTiers         Json     @default("[]")
+  rewardTiers Json @default("[]")
 
   // Spotlight section — e.g., "New in supplements" callout.
-  spotlightEnabled    Boolean  @default(true)
-  spotlightEyebrow    String?  @default("New in")
-  spotlightTitle      String?  @default("Certified. Tested. Real dosing.")
-  spotlightBody       String?  @default("Every supplement we stock lists its third-party testing. We won't sell proprietary blends or hidden dosages.")
-  spotlightCtaLabel   String?  @default("Shop supplements")
-  spotlightCtaHref    String?  @default("/shop?category=supplements")
+  spotlightEnabled  Boolean @default(true)
+  spotlightEyebrow  String? @default("New in")
+  spotlightTitle    String? @default("Certified. Tested. Real dosing.")
+  spotlightBody     String? @default("Every supplement we stock lists its third-party testing. We won't sell proprietary blends or hidden dosages.")
+  spotlightCtaLabel String? @default("Shop supplements")
+  spotlightCtaHref  String? @default("/shop?category=supplements")
 
-  updatedAt           DateTime @updatedAt
-  createdAt           DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
 }
-
-
-
-
-

@@ -15,6 +15,9 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx prisma/seed.ts",
+    "service-areas:import": "tsx scripts/importServiceAreas.ts",
+    "service-areas:seed": "tsx scripts/seedServiceAreas.ts",
+    "smoke:cod": "tsx scripts/codLifecycle.smoke.ts",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
   },
   "dependencies": {
@@ -60,5 +63,3 @@
     "typescript": "^5.7.2"
   }
 }
-
-

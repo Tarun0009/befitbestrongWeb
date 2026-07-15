@@ -9,6 +9,7 @@ const router = Router();
 
 const ORDER_STATUSES: OrderStatus[] = [
   "PENDING",
+  "CONFIRMED",
   "PAID",
   "SHIPPED",
   "DELIVERED",
@@ -37,6 +38,7 @@ router.get("/orders", async (req, res, next) => {
         select: {
           id: true,
           status: true,
+          paymentMethod: true,
           total: true,
           currency: true,
           createdAt: true,
@@ -122,5 +124,3 @@ router.post("/orders/:id/refund", (req, res, next) =>
 );
 
 export default router;
-
-

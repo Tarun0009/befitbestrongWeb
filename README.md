@@ -1,5 +1,8 @@
 # beFitBeStrong
 
+[![CI](https://github.com/Tarun0009/befitbestrongWeb/actions/workflows/ci.yml/badge.svg)](https://github.com/Tarun0009/befitbestrongWeb/actions/workflows/ci.yml)
+[![Security](https://github.com/Tarun0009/befitbestrongWeb/actions/workflows/security.yml/badge.svg)](https://github.com/Tarun0009/befitbestrongWeb/actions/workflows/security.yml)
+
 A full-stack fitness commerce platform for supplements, home-gym equipment,
 training apparel, and accessories. It combines a responsive customer storefront,
 secure checkout, account features, and an operational admin console.
@@ -11,7 +14,8 @@ secure checkout, account features, and an operational admin console.
 - Responsive product catalog with search, filters, sorting, and pagination
 - Product variants, live stock feedback, bundles, subscriptions, and sale pricing
 - Redis-backed guest and authenticated carts with automatic cart merging
-- Guest or account checkout with server-calculated coupons and Razorpay payments
+- Guest or account checkout with server-calculated coupons, Razorpay, and PIN-controlled COD
+- Delhi/Noida/Ghaziabad delivery checks with unsupported-area expansion requests
 - Customer orders, reviews, wishlist, stock alerts, rewards, and referrals
 - SEO metadata, structured product data, sitemap, accessible dialogs, and reduced-motion support
 
@@ -19,7 +23,8 @@ secure checkout, account features, and an operational admin console.
 
 - Role-protected dashboard and customer management
 - Product, category, variant, bundle, and subscription management
-- Order lifecycle controls with auditable state transitions and refunds
+- Order lifecycle controls with auditable prepaid/COD states, refunds, and persistent alerts
+- Service-area, COD-policy, delivery-estimate, and expansion-demand management
 - Homepage merchandising, coupons, review moderation, demand, and loyalty tools
 - Revenue, order, product, inventory, referral, and retention reporting
 
@@ -140,6 +145,17 @@ The backend test suite covers environment policy, state transitions, payment
 signatures, caching, reviews, stock alerts, loyalty, bundles, subscriptions, and
 discovery rules.
 
+## Delivery automation
+
+Pull requests run separate backend and frontend quality gates plus CodeQL and
+dependency review. Version tags publish immutable backend and frontend images to
+GitHub Container Registry, and production deployment requires a protected manual
+approval with a full release commit SHA.
+
+The [CI/CD learning guide](./docs/CI_CD_GUIDE.md) explains the workflows, one-time
+GitHub and server configuration, normal team routine, release procedure, rollback,
+troubleshooting, and hands-on exercises.
+
 ## Production deployment
 
 Production configuration is intentionally separate from local development.
@@ -152,21 +168,19 @@ docker compose \
   --env-file deploy/.env.production \
   -f deploy/docker-compose.production.example.yml \
   config --quiet
-
-docker compose \
-  --env-file deploy/.env.production \
-  -f deploy/docker-compose.production.example.yml \
-  up -d --build
 ```
 
-The deployment example uses protected data services, exact HTTPS origins,
+Production releases are built by the `Release images` workflow and deployed by the
+protected `Deploy production` workflow; the server does not rebuild application
+images. The deployment example uses protected data services, exact HTTPS origins,
 container health checks, non-root application users, and a one-time Prisma migration
 service. Read the [production configuration guide](./docs/PRODUCTION_CONFIGURATION.md)
-before deploying.
+and [CI/CD guide](./docs/CI_CD_GUIDE.md) before deploying.
 
 ## Documentation
 
 - [Architecture](./docs/ARCHITECTURE.md)
+- [Serviceability, COD, and admin notifications](./docs/SERVICEABILITY_COD_ADMIN_NOTIFICATIONS.md)
 - [Authentication and authorization](./docs/AUTH.md)
 - [Caching](./docs/CACHING.md)
 - [Search](./docs/SEARCH.md)
@@ -179,6 +193,7 @@ before deploying.
 - [Bundles and subscriptions](./docs/BUNDLES_SUBSCRIPTIONS.md)
 - [Discovery, SEO, and accessibility](./docs/DISCOVERY_SEO_ACCESSIBILITY.md)
 - [Production configuration](./docs/PRODUCTION_CONFIGURATION.md)
+- [CI/CD workflow and learning guide](./docs/CI_CD_GUIDE.md)
 - [OpenAPI specification](./docs/openapi.yaml)
 
 ## Security

@@ -57,8 +57,8 @@ export default function AdminReviewsPage() {
   }
 
   return (
-    <div>
-      <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
         <div>
           <h2 className="text-xl font-semibold">Review moderation</h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -70,7 +70,7 @@ export default function AdminReviewsPage() {
         </span>
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2">
         {statuses.map((item) => (
           <button
             key={item}
@@ -99,11 +99,11 @@ export default function AdminReviewsPage() {
       {isLoading ? (
         <div className="mt-6 h-48 animate-pulse rounded-xl bg-muted" />
       ) : data?.items.length ? (
-        <div className={"mt-6 space-y-3 " + (isFetching ? "opacity-70" : "")}>
+        <div className={"space-y-3 " + (isFetching ? "opacity-70" : "")}>
           {data.items.map((review) => (
             <article
               key={review.id}
-              className="rounded-xl border border-border p-5"
+              className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6"
             >
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>

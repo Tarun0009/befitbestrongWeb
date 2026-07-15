@@ -92,7 +92,7 @@ export default function NewProductPage() {
   }
 
   return (
-    <div>
+    <div className="space-y-5">
       <nav className="mb-6 text-sm text-muted-foreground">
         <Link href="/admin/products" className="hover:text-foreground">
           Products
@@ -100,9 +100,13 @@ export default function NewProductPage() {
         / New
       </nav>
 
-      <h2 className="text-2xl font-semibold">New product</h2>
+      <div>
+        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Catalog</p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight">Create a new product</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Add the core product, pricing, first image, and opening inventory in one guided form.</p>
+      </div>
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-5 rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
         <Field label="Name">
           <input required value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
         </Field>
@@ -132,7 +136,7 @@ export default function NewProductPage() {
           <input type="url" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://..." className={inputCls} />
         </Field>
 
-        <section className="rounded-lg border border-border p-5">
+        <section className="rounded-2xl border border-black/[0.07] bg-[#faf9f6] p-4 sm:p-5">
           <div className="flex items-center justify-between">
             <h3 className="font-medium">Variants</h3>
             <button type="button" onClick={() => setVariants((prev) => [...prev, emptyVariant()])} className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted">
@@ -180,7 +184,7 @@ export default function NewProductPage() {
 }
 
 const inputCls =
-  "mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30";
+  "mt-1.5 min-h-11 w-full rounded-xl border border-black/10 bg-[#faf9f6] px-3 py-2 text-sm outline-none transition focus:border-foreground/20 focus:bg-white focus:ring-2 focus:ring-primary/35";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

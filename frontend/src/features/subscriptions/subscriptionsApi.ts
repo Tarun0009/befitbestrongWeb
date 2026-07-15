@@ -191,9 +191,9 @@ export const subscriptionsApi = createApi({
     }),
     adminUpdateSubscriptionPlan: builder.mutation<
       { plan: SubscriptionPlan },
-      { id: string; body: { name: string; discountPercent: number; allowedFrequencies: number[]; active: boolean } }
+      { id: string; body: Partial<{ name: string; discountPercent: number; allowedFrequencies: number[]; active: boolean }> }
     >({
-      query: ({ id, body }) => ({ url: "/admin/subscription-plans/" + id, method: "PUT", body }),
+      query: ({ id, body }) => ({ url: "/admin/subscription-plans/" + id, method: "PATCH", body }),
       invalidatesTags: ["Plans", "AdminSubscriptions"],
     }),
     adminDeleteSubscriptionPlan: builder.mutation<void, string>({

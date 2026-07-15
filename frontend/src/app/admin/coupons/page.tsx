@@ -70,8 +70,8 @@ export default function AdminCouponsPage() {
   }
 
   return (
-    <div className="space-y-8">
-      <section className="rounded-xl border border-border p-5 sm:p-6">
+    <div className="space-y-6">
+      <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
         <h2 className="text-xl font-semibold">Create coupon</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Discounts are validated and calculated by the backend during checkout.
@@ -162,7 +162,7 @@ export default function AdminCouponsPage() {
         </form>
       </section>
 
-      <section>
+      <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
         <div className="flex items-end justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold">Coupons</h2>
@@ -263,7 +263,7 @@ export default function AdminCouponsPage() {
 }
 
 const inputClass =
-  "mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/30";
+  "mt-1.5 h-11 w-full rounded-xl border border-black/10 bg-[#faf9f6] px-3 text-sm outline-none transition focus:border-foreground/20 focus:bg-white focus:ring-2 focus:ring-primary/35";
 
 function Field({
   label,

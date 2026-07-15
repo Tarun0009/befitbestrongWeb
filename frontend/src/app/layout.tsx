@@ -6,6 +6,7 @@ import { CartDrawer } from "@/components/CartDrawer";
 import { AnnouncementBar } from "@/components/AnnouncementBar";
 import { RewardsTicker } from "@/components/RewardsTicker";
 import { Footer } from "@/components/Footer";
+import { StorefrontOnly } from "@/components/StorefrontOnly";
 import {
   DEFAULT_SHARE_IMAGE,
   getSiteUrl,
@@ -98,21 +99,22 @@ export default function RootLayout({
           Skip to main content
         </a>
         <Providers>
-          <AnnouncementBar />
-          <RewardsTicker />
-          <Suspense fallback={null}>
-            <Header />
-          </Suspense>
+          <StorefrontOnly>
+            <AnnouncementBar />
+            <RewardsTicker />
+            <Suspense fallback={null}>
+              <Header />
+            </Suspense>
+          </StorefrontOnly>
           <div id="main-content" tabIndex={-1}>
             {children}
           </div>
-          <Footer />
-          <CartDrawer />
+          <StorefrontOnly>
+            <Footer />
+            <CartDrawer />
+          </StorefrontOnly>
         </Providers>
       </body>
     </html>
   );
 }
-
-
-

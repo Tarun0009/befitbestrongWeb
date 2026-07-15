@@ -245,6 +245,10 @@ export default function AdminOrderDetailPage() {
             <section className="rounded-lg border border-border p-5">
               <h2 className="font-medium">Payment</h2>
               <dl className="mt-3 space-y-2 text-sm">
+                <Row
+                  label="Method"
+                  value={order.paymentMethod === "COD" ? "Cash on delivery" : "Paid online"}
+                />
                 <Row label="Provider" value={order.payment.provider} />
                 <Row label="Status" value={order.payment.status} />
                 <Row
@@ -293,6 +297,8 @@ function StatusPill({ status }: { status: OrderStatus }) {
   const tone: Record<OrderStatus, string> = {
     PENDING:
       "bg-orange-500/10 text-orange-600 ring-1 ring-inset ring-orange-500/20",
+    CONFIRMED:
+      "bg-blue-500/10 text-blue-700 ring-1 ring-inset ring-blue-500/20",
     PAID:
       "bg-emerald-500/10 text-emerald-600 ring-1 ring-inset ring-emerald-500/20",
     SHIPPED:

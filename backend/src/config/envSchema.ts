@@ -46,6 +46,7 @@ const baseEnvSchema = z.object({
 
   RESEND_API_KEY: emptyToUndefined(z.string().min(1).optional()),
   EMAIL_FROM: emptyToUndefined(z.string().email().optional()),
+  ADMIN_NOTIFICATION_EMAIL: emptyToUndefined(z.string().email().optional()),
   EMAIL_DELIVERY_REQUIRED: stringBoolean,
 });
 

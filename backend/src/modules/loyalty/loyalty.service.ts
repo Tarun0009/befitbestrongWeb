@@ -3,6 +3,7 @@ import {
   Prisma,
   type LoyaltyEntryType,
   type OrderStatus,
+  type PaymentMethod,
 } from "@prisma/client";
 import { prisma } from "../../config/db.js";
 import { HttpError } from "../../middleware/errorHandler.js";
@@ -552,12 +553,17 @@ export async function handleLoyaltyTransition(
     userId: string | null;
     total: number;
     couponCode: string | null;
+    paymentMethod: PaymentMethod;
     to: OrderStatus;
   },
 ) {
   if (!input.userId) return;
 
-  if (input.to === "PAID") {
+  const shouldReward =
+    (input.paymentMethod === "PREPAID" && input.to === "PAID") ||
+    (input.paymentMethod === "COD" && input.to === "DELIVERED");
+
+  if (shouldReward) {
     await rewardOrder(tx, {
       orderId: input.orderId,
       userId: input.userId,

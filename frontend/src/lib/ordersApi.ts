@@ -49,12 +49,15 @@ const baseQueryWithRefresh: BaseQueryFn<
 
 export type OrderStatus =
   | "PENDING"
+  | "CONFIRMED"
   | "PAID"
   | "SHIPPED"
   | "DELIVERED"
   | "CANCELLED"
   | "FAILED"
   | "REFUNDED";
+
+export type PaymentMethod = "PREPAID" | "COD";
 
 export interface CheckoutAddress {
   fullName: string;
@@ -71,10 +74,12 @@ export interface CheckoutSessionResponse {
   orderId: string;
   amount: number;
   currency: string;
+  paymentMethod: PaymentMethod;
+  paymentFee: number;
   razorpay: {
     orderId: string;
     keyId: string;
-  };
+  } | null;
   guestAccessToken: string | null;
 }
 
@@ -99,6 +104,7 @@ export interface CouponValidation {
 export interface OrderListItem {
   id: string;
   status: OrderStatus;
+  paymentMethod: PaymentMethod;
   total: number;
   currency: string;
   createdAt: string;
@@ -132,6 +138,7 @@ export interface OrderDetail extends Omit<OrderListItem, "items"> {
   couponDiscount: number;
   couponCode: string | null;
   shipping: number;
+  paymentFee: number;
   tax: number;
   addressSnapshot: CheckoutAddress;
   contactEmail: string;
@@ -182,6 +189,7 @@ export interface AdminCouponInput {
 export interface AdminOrderListItem {
   id: string;
   status: OrderStatus;
+  paymentMethod: PaymentMethod;
   total: number;
   currency: string;
   createdAt: string;
@@ -225,7 +233,12 @@ export const ordersApi = createApi({
     }),
     createCheckoutSession: builder.mutation<
       CheckoutSessionResponse,
-      { address: CheckoutAddress; email?: string; couponCode?: string }
+      {
+        address: CheckoutAddress;
+        email?: string;
+        couponCode?: string;
+        paymentMethod: PaymentMethod;
+      }
     >({
       query: (body) => ({ url: "/checkout/session", method: "POST", body }),
       invalidatesTags: ["Orders"],
@@ -386,9 +399,3 @@ export const {
   useAdminGetOrderQuery,
   useAdminOrderTransitionMutation,
 } = ordersApi;
-
-
-
-
-
-

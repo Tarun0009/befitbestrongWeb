@@ -1,6 +1,6 @@
-# Production Configuration and Launch
+# Production Configuration and Deployment
 
-Phase 11A adds fail-fast environment validation, deployable container examples,
+beFitBeStrong uses fail-fast environment validation, deployable container examples,
 release metadata, and separate liveness/readiness checks. The examples contain
 placeholders only. Real secrets belong in the deployment platform secret store or
 an ignored `deploy/.env.production` file.
@@ -51,8 +51,10 @@ Use a separate webhook secret. Do not reuse the API key secret. The endpoint mus
 receive the raw request body; the application already mounts it before JSON parsing.
 
 If email delivery is a launch requirement, set both `RESEND_API_KEY` and
-`EMAIL_FROM`, then set `EMAIL_DELIVERY_REQUIRED=true`. Otherwise leave both values
-empty and the readiness check will report email as optional/unavailable.
+`EMAIL_FROM`, then set `EMAIL_DELIVERY_REQUIRED=true`. Set
+`ADMIN_NOTIFICATION_EMAIL` to the operations inbox that should receive secondary
+new-order alerts. Otherwise leave the email values empty and the readiness check
+will report email as optional/unavailable; persistent dashboard alerts still work.
 
 ## Validate before deployment
 
@@ -83,15 +85,15 @@ values, localhost URLs, malformed URLs, or HTTP deployment URLs stop the build.
 The example binds frontend/backend ports to loopback so a host reverse proxy can
 terminate TLS without exposing raw application ports publicly.
 
-```bash
-docker compose \
-  --env-file deploy/.env.production \
-  -f deploy/docker-compose.production.example.yml \
-  up -d --build
-```
+Create immutable images with the `Release images` GitHub workflow and deploy the
+full released commit SHA with the protected `Deploy production` workflow. The server
+runs `deploy/scripts/deploy-release.sh`, pulls images from GHCR, applies migrations
+once, starts services without building, and verifies health. Follow the
+[CI/CD guide](./CI_CD_GUIDE.md) for initial configuration and rollback.
 
-`migrate` is a one-shot release service that invokes the image-bundled Prisma CLI directly. The backend waits for it to succeed and
-for Redis to become healthy. Migrations do not run once per API replica.
+`migrate` is a one-shot release service that invokes the image-bundled Prisma CLI
+directly. The deployment script waits for it to succeed before starting the backend.
+Migrations do not run once per API replica.
 
 Point the reverse proxy at:
 
@@ -125,5 +127,3 @@ shape changed.
 - Rebuild the frontend after changing any `NEXT_PUBLIC_*` value; those values are
   build-time configuration.
 - Restart backend containers after rotating server-only variables.
-
-

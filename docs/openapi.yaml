@@ -19,6 +19,7 @@ tags:
   - name: Search
   - name: Cart
   - name: Checkout
+  - name: Serviceability
   - name: Orders
   - name: Admin
   - name: Webhooks
@@ -48,7 +49,10 @@ components:
             details: {}
     OrderStatus:
       type: string
-      enum: [PENDING, PAID, SHIPPED, DELIVERED, CANCELLED, FAILED, REFUNDED]
+      enum: [PENDING, CONFIRMED, PAID, SHIPPED, DELIVERED, CANCELLED, FAILED, REFUNDED]
+    PaymentMethod:
+      type: string
+      enum: [PREPAID, COD]
     Category:
       type: object
       properties:
@@ -363,6 +367,44 @@ paths:
         "200": { description: Merged cart }
         "401": { description: Login required }
 
+  # ---------------- Serviceability ----------------
+  /serviceability/{pincode}:
+    get:
+      tags: [Serviceability]
+      summary: Check the active delivery and payment policy for an exact PIN
+      parameters:
+        - name: pincode
+          in: path
+          required: true
+          schema: { type: string, pattern: "^\\d{6}$" }
+      responses:
+        "200": { description: Serviceability result and eligible payment methods }
+        "400": { description: Invalid PIN }
+  /serviceability/requests:
+    post:
+      tags: [Serviceability]
+      security: [{ firebaseBearer: [] }]
+      summary: Register de-duplicated demand for an unsupported PIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pincode]
+              properties:
+                pincode: { type: string, pattern: "^\\d{6}$" }
+                email: { type: string, format: email }
+                phone: { type: string }
+                productId: { type: string }
+                source:
+                  type: string
+                  enum: [product, checkout, cart, footer, storefront]
+      responses:
+        "202": { description: Request accepted, including duplicate requests }
+        "409": { description: PIN is already serviceable }
+        "429": { description: Rate limited }
+
   # ---------------- Checkout ----------------
   /checkout/config:
     get:
@@ -383,15 +425,19 @@ paths:
     post:
       tags: [Checkout]
       security: [{ firebaseBearer: [] }]
-      summary: Reserve stock, create Order + Razorpay order in one transaction
+      summary: Validate coverage, reserve stock, and create a prepaid or COD order
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [address]
+              required: [address, paymentMethod]
               properties:
+                paymentMethod:
+                  $ref: "#/components/schemas/PaymentMethod"
+                email: { type: string, format: email }
+                couponCode: { type: string, nullable: true }
                 address:
                   type: object
                   required: [fullName, phone, line1, city, state, pincode]
@@ -415,12 +461,17 @@ paths:
                   orderId: { type: string }
                   amount: { type: integer }
                   currency: { type: string }
+                  paymentMethod:
+                    $ref: "#/components/schemas/PaymentMethod"
+                  paymentFee: { type: integer }
                   razorpay:
                     type: object
+                    nullable: true
                     properties:
                       orderId: { type: string }
                       keyId: { type: string }
         "409": { description: Insufficient stock }
+        "422": { description: Unsupported PIN or unavailable payment method }
         "503": { description: Razorpay not configured }
   /checkout/cancel:
     post:
@@ -598,6 +649,52 @@ paths:
       responses:
         "204": { description: Deleted }
         "409": { description: Has products — reassign first }
+  /admin/service-areas:
+    get:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      responses:
+        "200": { description: Paginated service-area policy rows }
+    post:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      responses:
+        "201": { description: Service area created }
+  /admin/service-areas/{id}:
+    patch:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Service-area policy updated }
+  /admin/service-area-demand:
+    get:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      responses:
+        "200": { description: Unsupported PIN demand ranked by attempts }
+  /admin/notifications:
+    get:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      responses:
+        "200": { description: Persistent order notifications and per-admin unread count }
+  /admin/notifications/{id}/read:
+    post:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Notification read for the current admin }
+  /admin/notifications/read-all:
+    post:
+      tags: [Admin]
+      security: [{ firebaseBearer: [] }]
+      responses:
+        "200": { description: Up to 500 current unread notifications marked read }
+
   /admin/orders:
     get:
       tags: [Admin]
@@ -624,7 +721,7 @@ paths:
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: PAID → SHIPPED }
+        "200": { description: PAID or CONFIRMED → SHIPPED }
         "409": { description: Invalid transition }
   /admin/orders/{id}/deliver:
     post:
@@ -641,7 +738,7 @@ paths:
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: PENDING → CANCELLED (releases stock) }
+        "200": { description: PENDING or CONFIRMED → CANCELLED (releases stock) }
   /admin/orders/{id}/refund:
     post:
       tags: [Admin]
@@ -649,7 +746,7 @@ paths:
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: PAID or DELIVERED → REFUNDED (calls Razorpay) }
+        "200": { description: PAID or DELIVERED → REFUNDED; gateway call is skipped for COD }
   /admin/analytics/summary:
     get:
       tags: [Admin]

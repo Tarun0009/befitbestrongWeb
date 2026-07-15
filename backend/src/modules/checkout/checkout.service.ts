@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import type { PaymentMethod } from "@prisma/client";
 import { prisma } from "../../config/db.js";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
@@ -17,6 +18,13 @@ import {
   calculateCouponDiscount,
   consumeCouponUsage,
 } from "./coupon.service.js";
+import {
+  assertPaymentMethodAvailable,
+  requireServiceArea,
+} from "../serviceability/serviceability.service.js";
+import { createOrderAdminNotification } from "../notifications/adminNotification.service.js";
+import { sendOrderStatusEmail } from "../orders/orderEmail.service.js";
+import { sendAdminOrderNotificationEmail } from "../notifications/adminOrderEmail.service.js";
 
 /**
  * Checkout — the money path.
@@ -31,12 +39,10 @@ import {
  *      and Prisma throws — we roll the whole transaction back and no order
  *      is created.
  *
- *   2. Once the Razorpay order id is committed to the DB, ANY subsequent
- *      webhook for it must be able to find the order and transition it. So
- *      we create Razorpay's order INSIDE the DB transaction but BEFORE the
- *      commit — if either side fails, we bail. If Razorpay succeeds and DB
- *      commit fails, we have a dangling Razorpay order (acceptable — they
- *      auto-expire and cost nothing).
+ *   2. Never hold a database transaction open across a payment-provider call.
+ *      We reserve stock and create the local order atomically, create the
+ *      Razorpay order after commit, then persist the provider link. Provider
+ *      failure transitions the local order to FAILED and releases stock.
  *
  * The cart is cleared right after the DB commit. Between /checkout/session
  * and the eventual webhook, stock is already decremented so the row is
@@ -60,16 +66,19 @@ export interface CheckoutInput {
   couponCode?: string | null;
   cartOwner: CartOwner;
   address: CheckoutAddress;
+  paymentMethod: PaymentMethod;
 }
 
 export interface CheckoutResult {
   orderId: string;
   amount: number;
   currency: string;
+  paymentMethod: PaymentMethod;
+  paymentFee: number;
   razorpay: {
     orderId: string;
     keyId: string;
-  };
+  } | null;
   guestAccessToken: string | null;
 }
 
@@ -79,6 +88,8 @@ const TAX_RATE = 0; // demo has GST-inclusive pricing already
 export async function createCheckoutSession(
   input: CheckoutInput,
 ): Promise<CheckoutResult> {
+  // Coverage is authoritative and checked before any stock is reserved.
+  const serviceArea = await requireServiceArea(input.address.pincode);
 
   // 1. Snapshot the cart. Server-side re-hydrate so we never trust client totals.
   const cart = await getCart(input.cartOwner);
@@ -114,7 +125,12 @@ export async function createCheckoutSession(
   const discount = bundleDiscount + couponDiscount;
   const shipping = SHIPPING_FLAT;
   const tax = Math.round((subtotal - discount) * TAX_RATE);
-  const total = subtotal - discount + shipping + tax;
+  const amountBeforeFee = subtotal - discount + shipping + tax;
+  const { paymentFee, total } = assertPaymentMethodAvailable(
+    serviceArea,
+    input.paymentMethod,
+    amountBeforeFee,
+  );
   const currency = cart.currency ?? "INR";
   const guestAccessToken = input.userId
     ? null
@@ -181,13 +197,15 @@ export async function createCheckoutSession(
         userId: input.userId,
         contactEmail: input.contactEmail,
         guestAccessTokenHash,
-        status: "PENDING",
+        status: input.paymentMethod === "COD" ? "CONFIRMED" : "PENDING",
+        paymentMethod: input.paymentMethod,
         subtotal,
         discount,
         bundleDiscount,
         couponDiscount,
         couponCode: coupon?.code ?? null,
         shipping,
+        paymentFee,
         tax,
         total,
         currency,
@@ -238,16 +256,59 @@ export async function createCheckoutSession(
         },
       },
     });
-    // First row in the audit trail: PENDING at t=0.
+    const initialStatus =
+      input.paymentMethod === "COD" ? "CONFIRMED" : "PENDING";
     await recordInitialHistory(
       tx,
       created.id,
       input.userId
         ? { kind: "customer", userId: input.userId }
         : { kind: "guest", note: "guest order created" },
+      initialStatus,
     );
+
+    if (input.paymentMethod === "COD") {
+      await tx.payment.create({
+        data: {
+          orderId: created.id,
+          provider: "cod",
+          providerOrderId: "cod_" + created.id,
+          amount: total,
+          currency,
+          status: "CREATED",
+        },
+      });
+      await createOrderAdminNotification(tx, {
+        type: "ORDER_COD_PLACED",
+        orderId: created.id,
+        total,
+        currency,
+        contactEmail: input.contactEmail,
+      });
+    }
     return created;
   });
+
+  if (input.paymentMethod === "COD") {
+    await clearCart(input.cartOwner);
+    void sendOrderStatusEmail(order.id, "CONFIRMED").catch((err) => {
+      logger.error({ err, orderId: order.id }, "COD confirmation email failed");
+    });
+    void sendAdminOrderNotificationEmail(order.id, "ORDER_COD_PLACED").catch(
+      (err) => {
+        logger.error({ err, orderId: order.id }, "admin COD-order email failed");
+      },
+    );
+    return {
+      orderId: order.id,
+      amount: total,
+      currency,
+      paymentMethod: input.paymentMethod,
+      paymentFee,
+      razorpay: null,
+      guestAccessToken,
+    };
+  }
 
   // 3. Create the Razorpay order — outside the tx, since it's an external call.
   //    If this fails, stock is already reserved and the order is PENDING. The
@@ -314,6 +375,8 @@ export async function createCheckoutSession(
     orderId: order.id,
     amount: total,
     currency,
+    paymentMethod: input.paymentMethod,
+    paymentFee,
     razorpay: {
       orderId: rzp.id,
       keyId: env.RAZORPAY_KEY_ID ?? "",
@@ -403,6 +466,4 @@ export async function devCompleteOrder(
     "dev-complete used — bypassed razorpay",
   );
 }
-
-
 

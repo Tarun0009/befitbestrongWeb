@@ -12,6 +12,8 @@ import adminDemandRoutes from "../wishlist/adminDemand.routes.js";
 import adminLoyaltyRoutes from "../loyalty/adminLoyalty.routes.js";
 import adminBundlesRoutes from "../bundles/adminBundles.routes.js";
 import adminSubscriptionsRoutes from "../subscriptions/adminSubscriptions.routes.js";
+import adminServiceabilityRoutes from "../serviceability/adminServiceability.routes.js";
+import adminNotificationRoutes from "../notifications/adminNotification.routes.js";
 
 const router = Router();
 
@@ -26,6 +28,8 @@ router.use("/", adminDemandRoutes);
 router.use("/", adminLoyaltyRoutes);
 router.use("/", adminBundlesRoutes);
 router.use("/", adminSubscriptionsRoutes);
+router.use("/", adminServiceabilityRoutes);
+router.use("/", adminNotificationRoutes);
 
 const roleBody = z.object({
   role: z.enum(["CUSTOMER", "ADMIN"]),
@@ -53,7 +57,3 @@ router.post("/users/:id/role", async (req, res, next) => {
 });
 
 export default router;
-
-
-
-

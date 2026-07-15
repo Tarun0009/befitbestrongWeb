@@ -109,20 +109,24 @@ export async function createSubscriptionPlan(input: {
 
 export async function updateSubscriptionPlan(
   id: string,
-  input: {
+  input: Partial<{
     name: string;
     discountPercent: number;
     allowedFrequencies: number[];
     active: boolean;
-  },
+  }>,
 ) {
   const row = await prisma.subscriptionPlan.update({
     where: { id },
     data: {
       ...input,
-      allowedFrequencies: [...new Set(input.allowedFrequencies)].sort(
-        (a, b) => a - b,
-      ),
+      ...(input.allowedFrequencies !== undefined
+        ? {
+            allowedFrequencies: [...new Set(input.allowedFrequencies)].sort(
+              (a, b) => a - b,
+            ),
+          }
+        : {}),
     },
     include: planInclude,
   });

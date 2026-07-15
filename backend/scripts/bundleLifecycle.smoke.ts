@@ -68,6 +68,7 @@ try {
   const checkout = await createCheckoutSession({
     userId: null,
     contactEmail: "bundle-smoke@example.test",
+    paymentMethod: "PREPAID",
     cartOwner: owner,
     address: {
       fullName: "Bundle Smoke",

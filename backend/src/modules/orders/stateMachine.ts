@@ -4,6 +4,8 @@ import { logger } from "../../config/logger.js";
 import { refundRazorpayPayment } from "../../lib/razorpay.js";
 import { sendOrderStatusEmail } from "./orderEmail.service.js";
 import { handleLoyaltyTransition } from "../loyalty/loyalty.service.js";
+import { createOrderAdminNotification } from "../notifications/adminNotification.service.js";
+import { sendAdminOrderNotificationEmail } from "../notifications/adminOrderEmail.service.js";
 
 /**
  * Order state machine.
@@ -16,15 +18,17 @@ import { handleLoyaltyTransition } from "../loyalty/loyalty.service.js";
  *
  * The transitions come straight from PLAN.md's diagram:
  *
- *   pending → paid | cancelled | failed
- *   paid    → shipped | refunded
- *   shipped → delivered
+ *   pending   → paid | cancelled | failed
+ *   confirmed → shipped | cancelled (COD)
+ *   paid      → shipped | refunded
+ *   shipped   → delivered
  *   delivered → refunded
  *   failed / cancelled / refunded — terminal
  */
 
 export const TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
   PENDING: ["PAID", "CANCELLED", "FAILED"],
+  CONFIRMED: ["SHIPPED", "CANCELLED"],
   PAID: ["SHIPPED", "REFUNDED"],
   SHIPPED: ["DELIVERED"],
   DELIVERED: ["REFUNDED"],
@@ -104,6 +108,7 @@ export async function transition(
   if (
     !opts.skipSideEffects &&
     to === "REFUNDED" &&
+    before.payment?.provider !== "cod" &&
     (before.status === "PAID" || before.status === "DELIVERED")
   ) {
     if (!before.payment?.providerPaymentId) {
@@ -128,7 +133,7 @@ export async function transition(
   const updatedOrder = await db.$transaction(async (tx) => {
     // 1. Stock side effects — release when we abandon (never shipped) or
     //    when we're refunding a paid-but-unshipped order.
-    const releaseFrom: OrderStatus[] = ["PENDING", "PAID"];
+    const releaseFrom: OrderStatus[] = ["PENDING", "CONFIRMED", "PAID"];
     const releaseTo: OrderStatus[] = ["CANCELLED", "FAILED", "REFUNDED"];
     const shouldReleaseStock =
       !opts.skipSideEffects &&
@@ -149,7 +154,12 @@ export async function transition(
     }
 
     // 2. Payment row bookkeeping.
-    if (before.payment && (opts.paymentUpdate || to === "REFUNDED")) {
+    const codCollected =
+      before.payment?.provider === "cod" && to === "DELIVERED";
+    if (
+      before.payment &&
+      (opts.paymentUpdate || to === "REFUNDED" || codCollected)
+    ) {
       await tx.payment.update({
         where: { orderId },
         data: {
@@ -165,7 +175,9 @@ export async function transition(
             ? { status: opts.paymentUpdate.status }
             : to === "REFUNDED"
               ? { status: "REFUNDED" as const }
-              : {}),
+              : codCollected
+                ? { status: "CAPTURED" as const }
+                : {}),
         },
       });
     }
@@ -182,6 +194,7 @@ export async function transition(
       userId: before.userId,
       total: before.total,
       couponCode: before.couponCode,
+      paymentMethod: before.paymentMethod,
       to,
     });
 
@@ -201,6 +214,16 @@ export async function transition(
       },
     });
 
+    if (before.paymentMethod === "PREPAID" && to === "PAID") {
+      await createOrderAdminNotification(tx, {
+        type: "ORDER_PAID",
+        orderId,
+        total: before.total,
+        currency: before.currency,
+        contactEmail: before.contactEmail,
+      });
+    }
+
     logger.info(
       { orderId, from: before.status, to, actor: opts.actor.kind },
       "order transitioned",
@@ -212,6 +235,11 @@ export async function transition(
   void sendOrderStatusEmail(orderId, to).catch((err) => {
     logger.error({ err, orderId, status: to }, "order email failed");
   });
+  if (before.paymentMethod === "PREPAID" && to === "PAID") {
+    void sendAdminOrderNotificationEmail(orderId, "ORDER_PAID").catch((err) => {
+      logger.error({ err, orderId }, "admin paid-order email failed");
+    });
+  }
 
   return updatedOrder;
 }
@@ -225,12 +253,13 @@ export async function recordInitialHistory(
   tx: TxOrClient,
   orderId: string,
   actor: Actor,
+  initialStatus: OrderStatus = "PENDING",
 ) {
   await tx.orderStatusHistory.create({
     data: {
       orderId,
       fromStatus: null,
-      toStatus: "PENDING",
+      toStatus: initialStatus,
       actorKind: actor.kind,
       actorId:
         actor.kind === "customer" || actor.kind === "admin"
@@ -240,6 +269,3 @@ export async function recordInitialHistory(
     },
   });
 }
-
-
-

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { formatINR } from "@/lib/format";
+import { buildChangedFields, hasChangedFields } from "@/lib/changedFields";
 import {
   type Bundle,
   type BundlePricingType,
@@ -49,6 +50,36 @@ export default function AdminBundlesPage() {
   }, 0);
   const submittedValue = form.pricingType === "FIXED_PRICE" ? Math.round(Number(form.value || 0) * 100) : Math.round(Number(form.value || 0));
   const previewPrice = form.pricingType === "FIXED_PRICE" ? submittedValue : componentTotal - Math.floor((componentTotal * submittedValue) / 100);
+  const bundleBody = {
+    name: form.name.trim(),
+    description: form.description.trim(),
+    imageUrl: form.imageUrl.trim() || null,
+    active: form.active,
+    pricingType: form.pricingType,
+    value: submittedValue,
+    startsAt: form.startsAt ? new Date(form.startsAt).toISOString() : null,
+    endsAt: form.endsAt ? new Date(form.endsAt).toISOString() : null,
+    items: components,
+  };
+  const originalBundleBody = editing
+    ? {
+        name: editing.name,
+        description: editing.description,
+        imageUrl: editing.imageUrl,
+        active: editing.active,
+        pricingType: editing.pricingType,
+        value: editing.value,
+        startsAt: canonicalEditorDate(editing.startsAt),
+        endsAt: canonicalEditorDate(editing.endsAt),
+        items: editing.items.map((item) => ({
+          variantId: item.variantId,
+          quantity: item.quantity,
+        })),
+      }
+    : null;
+  const editDirty =
+    !originalBundleBody ||
+    hasChangedFields(buildChangedFields(bundleBody, originalBundleBody));
 
   useEffect(() => {
     if (!editing) return;
@@ -87,23 +118,16 @@ export default function AdminBundlesPage() {
       setError("Choose at least two different variants.");
       return;
     }
-    const body = {
-      name: form.name.trim(),
-      description: form.description.trim(),
-      imageUrl: form.imageUrl.trim() || null,
-      active: form.active,
-      pricingType: form.pricingType,
-      value: submittedValue,
-      startsAt: form.startsAt ? new Date(form.startsAt).toISOString() : null,
-      endsAt: form.endsAt ? new Date(form.endsAt).toISOString() : null,
-      items: components,
-    };
+    if (editing && !editDirty) {
+      setMessage("Nothing to save.");
+      return;
+    }
     try {
       if (editing) {
-        await updateBundle({ id: editing.id, body }).unwrap();
+        await updateBundle({ id: editing.id, body: bundleBody }).unwrap();
         setMessage("Bundle updated.");
       } else {
-        await createBundle(body).unwrap();
+        await createBundle(bundleBody).unwrap();
         setMessage("Bundle created.");
       }
       reset();
@@ -125,8 +149,8 @@ export default function AdminBundlesPage() {
   }
 
   return (
-    <div className="space-y-8">
-      <section className="rounded-xl border border-border p-5 sm:p-6">
+    <div className="space-y-6">
+      <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-sm uppercase tracking-widest text-muted-foreground">Merchandising</p>
@@ -176,12 +200,12 @@ export default function AdminBundlesPage() {
 
           <div className="flex flex-wrap items-center gap-4">
             <label className="inline-flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} className="h-4 w-4 accent-primary" />Active and visible</label>
-            <button type="submit" disabled={creating || updating} className="rounded-lg bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">{creating || updating ? "Saving…" : editing ? "Update bundle" : "Create bundle"}</button>
+            <button type="submit" disabled={creating || updating || (!!editing && !editDirty)} className="rounded-lg bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">{creating || updating ? "Saving…" : editing ? "Update bundle" : "Create bundle"}</button>
           </div>
         </form>
       </section>
 
-      <section>
+      <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
         <div className="flex items-end justify-between"><div><h2 className="text-xl font-semibold">Configured bundles</h2><p className="mt-1 text-sm text-muted-foreground">Availability updates from the lowest-stock component.</p></div><span className="text-sm text-muted-foreground">{data?.items.length ?? 0} total</span></div>
         {isLoading ? <div className="mt-5 h-40 animate-pulse rounded-xl bg-muted" /> : data?.items.length ? (
           <div className="mt-5 overflow-x-auto rounded-xl border border-border"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="px-4 py-3">Bundle</th><th className="px-4 py-3">Pricing</th><th className="px-4 py-3">Availability</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Actions</th></tr></thead><tbody>{data.items.map((bundle) => <tr key={bundle.id} className="border-t border-border"><td className="px-4 py-3"><p className="font-medium">{bundle.name}</p><p className="mt-1 text-xs text-muted-foreground">{bundle.items.length} variants · /bundles/{bundle.slug}</p></td><td className="px-4 py-3"><p className="font-semibold">{formatINR(bundle.unitPrice)}</p><p className="text-xs text-emerald-700">Save {formatINR(bundle.savings)} ({bundle.savingsPercent}%)</p></td><td className="px-4 py-3">{bundle.availableUnits} bundles</td><td className="px-4 py-3"><span className={bundle.status === "AVAILABLE" ? "rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-700" : "rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground"}>{bundle.status.replaceAll("_", " ")}</span></td><td className="px-4 py-3 text-right"><button type="button" onClick={() => setEditing(bundle)} className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold">Edit</button><button type="button" onClick={() => handleDelete(bundle)} className="ml-2 px-2 py-1.5 text-xs font-semibold text-red-600">Delete</button></td></tr>)}</tbody></table></div>
@@ -195,6 +219,11 @@ function Field({ label, children, className = "" }: { label: string; children: R
   return <label className={"block " + className}><span className="text-sm font-medium">{label}</span>{children}</label>;
 }
 
+function canonicalEditorDate(value: string | null) {
+  const editorValue = toLocalInput(value);
+  return editorValue ? new Date(editorValue).toISOString() : null;
+}
+
 function toLocalInput(value: string | null) {
   if (!value) return "";
   const date = new Date(value);
@@ -202,4 +231,4 @@ function toLocalInput(value: string | null) {
   return local.toISOString().slice(0, 16);
 }
 
-const inputClass = "mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/30";
+const inputClass = "mt-1.5 h-11 w-full rounded-xl border border-black/10 bg-[#faf9f6] px-3 text-sm outline-none transition focus:border-foreground/20 focus:bg-white focus:ring-2 focus:ring-primary/35";

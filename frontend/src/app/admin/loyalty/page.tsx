@@ -8,6 +8,20 @@ import {
   useAdminGetLoyaltyQuery,
   useAdminUpdateLoyaltyConfigMutation,
 } from "@/features/loyalty/loyaltyApi";
+import { buildChangedFields, hasChangedFields } from "@/lib/changedFields";
+
+function editableConfig(config: LoyaltyConfig): LoyaltyConfig {
+  return {
+    enabled: config.enabled,
+    earnPointsPerRupee: config.earnPointsPerRupee,
+    redeemPointsPerRupee: config.redeemPointsPerRupee,
+    minRedeemPoints: config.minRedeemPoints,
+    maxRedeemPointsPerCoupon: config.maxRedeemPointsPerCoupon,
+    referralBonusReferrer: config.referralBonusReferrer,
+    referralBonusReferred: config.referralBonusReferred,
+    couponValidityDays: config.couponValidityDays,
+  };
+}
 
 export default function AdminLoyaltyPage() {
   const { data, isLoading, isFetching, refetch } = useAdminGetLoyaltyQuery();
@@ -24,26 +38,27 @@ export default function AdminLoyaltyPage() {
 
   useEffect(() => {
     if (data?.config) {
-      setForm({
-        enabled: data.config.enabled,
-        earnPointsPerRupee: data.config.earnPointsPerRupee,
-        redeemPointsPerRupee: data.config.redeemPointsPerRupee,
-        minRedeemPoints: data.config.minRedeemPoints,
-        maxRedeemPointsPerCoupon: data.config.maxRedeemPointsPerCoupon,
-        referralBonusReferrer: data.config.referralBonusReferrer,
-        referralBonusReferred: data.config.referralBonusReferred,
-        couponValidityDays: data.config.couponValidityDays,
-      });
+      setForm(editableConfig(data.config));
     }
   }, [data?.config]);
+
+  const configPatch =
+    form && data
+      ? buildChangedFields(form, editableConfig(data.config))
+      : {};
+  const configDirty = hasChangedFields(configPatch);
 
   async function handleSave(event: FormEvent) {
     event.preventDefault();
     if (!form) return;
     setError(null);
     setMessage(null);
+    if (!configDirty) {
+      setMessage("Nothing to save.");
+      return;
+    }
     try {
-      await updateConfig(form).unwrap();
+      await updateConfig(configPatch).unwrap();
       setMessage("Loyalty settings saved.");
     } catch (caught) {
       setError(apiMessage(caught, "Could not save loyalty settings."));
@@ -83,8 +98,8 @@ export default function AdminLoyaltyPage() {
   }
 
   return (
-    <div className="space-y-8">
-      <section>
+    <div className="space-y-6">
+      <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-sm uppercase tracking-widest text-muted-foreground">Retention</p>
@@ -120,7 +135,7 @@ export default function AdminLoyaltyPage() {
         <div className={error ? errorBox : successBox}>{error ?? message}</div>
       )}
 
-      <section className="rounded-xl border border-border p-5 sm:p-6">
+      <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-xl font-semibold">Program settings</h3>
@@ -202,7 +217,7 @@ export default function AdminLoyaltyPage() {
           <div className="flex items-end sm:col-span-2 lg:col-span-2">
             <button
               type="submit"
-              disabled={saving}
+              disabled={!configDirty || saving}
               className="h-11 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
             >
               {saving ? "Saving…" : "Save settings"}
@@ -211,7 +226,7 @@ export default function AdminLoyaltyPage() {
         </form>
       </section>
 
-      <section className="rounded-xl border border-border p-5 sm:p-6">
+      <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
         <h3 className="text-xl font-semibold">Manual adjustment</h3>
         <p className="mt-1 text-sm text-muted-foreground">
           Corrections are append-only. Negative adjustments cannot take an account below zero.
@@ -267,7 +282,7 @@ export default function AdminLoyaltyPage() {
         </form>
       </section>
 
-      <section>
+      <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
         <div className="flex items-end justify-between gap-4">
           <div>
             <h3 className="text-xl font-semibold">Customer balances</h3>
@@ -316,7 +331,7 @@ export default function AdminLoyaltyPage() {
         )}
       </section>
 
-      <section>
+      <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
         <div className="flex items-baseline justify-between gap-4">
           <div>
             <h3 className="text-xl font-semibold">Recent ledger activity</h3>
@@ -412,7 +427,7 @@ const entryLabels: Record<LoyaltyEntryType, string> = {
 };
 
 const inputClass =
-  "mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/30";
+  "mt-1.5 h-11 w-full rounded-xl border border-black/10 bg-[#faf9f6] px-3 text-sm outline-none transition focus:border-foreground/20 focus:bg-white focus:ring-2 focus:ring-primary/35";
 const successBox = "rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-800";
 const errorBox = "rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700";
 const positivePoints = "shrink-0 rounded-full bg-emerald-500/10 px-3 py-1 text-sm font-semibold tabular-nums text-emerald-700";

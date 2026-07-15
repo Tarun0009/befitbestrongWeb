@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../config/db.js";
 import { HttpError } from "../../middleware/errorHandler.js";
 import { normalizeCouponCode } from "../checkout/coupon.service.js";
+import { requireAtLeastOneField } from "../../lib/validation.js";
 
 const router = Router();
 
@@ -17,6 +18,9 @@ const couponFields = z.object({
   endsAt: z.coerce.date().optional().nullable(),
   active: z.boolean().default(true),
 });
+const couponPatchFields = requireAtLeastOneField(
+  couponFields.partial().strict(),
+);
 
 function validateRules(value: {
   type?: "PERCENTAGE" | "FIXED_AMOUNT";
@@ -67,7 +71,7 @@ router.post("/coupons", async (req, res, next) => {
 router.patch("/coupons/:id", async (req, res, next) => {
   try {
     const id = z.string().cuid().parse(req.params.id);
-    const body = couponFields.partial().parse(req.body);
+    const body = couponPatchFields.parse(req.body);
     validateRules(body);
     const coupon = await prisma.coupon.update({
       where: { id },

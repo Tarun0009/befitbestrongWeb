@@ -45,6 +45,7 @@ The state machine lives in [`modules/orders/stateMachine.ts`](../backend/src/mod
 
 ```
 PENDING   → PAID | CANCELLED | FAILED
+CONFIRMED → SHIPPED | CANCELLED
 PAID      → SHIPPED | REFUNDED
 SHIPPED   → DELIVERED
 DELIVERED → REFUNDED
@@ -55,6 +56,7 @@ REFUNDED  → (terminal)
 
 Rejected transitions we deliberately don't allow:
 
+- `CONFIRMED → PAID` — COD confirmation is not payment; collection is recorded only on delivery.
 - `PAID → CANCELLED` — a paid order isn't cancelled, it's refunded. Admin sees only the Refund button.
 - `SHIPPED → REFUNDED` — while in transit, you don't refund yet; wait for DELIVERED or use CANCELLED before ship.
 - `DELIVERED → SHIPPED` — you can't unship a delivered package. If it turns out to be lost, that's a support case, not a state change.
@@ -65,10 +67,12 @@ Rejected transitions we deliberately don't allow:
 |---|---|---|---|
 | PENDING → PAID | keep decremented | status=CAPTURED | (webhook already succeeded) |
 | PENDING → CANCELLED | release | — | — |
+| CONFIRMED → SHIPPED | keep decremented | COD remains CREATED | — |
+| CONFIRMED → CANCELLED | release | — | — |
 | PENDING → FAILED | release | status=FAILED | — |
 | PAID → SHIPPED | keep decremented | — | — |
 | PAID → REFUNDED | release | status=REFUNDED | Razorpay refund API |
-| SHIPPED → DELIVERED | keep decremented | — | — |
+| SHIPPED → DELIVERED | keep decremented | COD becomes CAPTURED | — |
 | DELIVERED → REFUNDED | keep decremented (customer has the item) | status=REFUNDED | Razorpay refund API |
 
 ### Actor tracking
@@ -102,7 +106,7 @@ For a demo the first failure mode is what happens 99% of the time. Production wo
 
 Two entry points:
 
-1. **`recordInitialHistory(tx, orderId, actor)`** — called by `createCheckoutSession` inside the same transaction that inserts the Order row. Ensures every order starts life with a `{fromStatus: null, toStatus: PENDING}` row.
+1. **`recordInitialHistory(tx, orderId, actor)`** — called by `createCheckoutSession` inside the same transaction that inserts the Order row. Ensures every order starts with an audited `PENDING` (prepaid) or `CONFIRMED` (COD) row.
 2. **`transition(db, orderId, to, opts)`** — called by everything else. The `orderStatusHistory.create` happens in the same tx as the `order.update`, so a partial commit is impossible.
 
 The customer's `/orders/:id` and the admin's `/admin/orders/:id` both include the history array in the response — the frontend renders it as a timeline.

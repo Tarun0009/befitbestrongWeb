@@ -4,7 +4,14 @@ import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import Script from "next/script";
 import { useRouter } from "next/navigation";
-import { LockKeyhole, Mail, MapPin, ShoppingBag } from "lucide-react";
+import {
+  Banknote,
+  CreditCard,
+  LockKeyhole,
+  Mail,
+  MapPin,
+  ShoppingBag,
+} from "lucide-react";
 import { useGetCartQuery, type Cart } from "@/lib/cartApi";
 import {
   useCreateCheckoutSessionMutation,
@@ -13,9 +20,12 @@ import {
   useValidateCouponMutation,
   type CheckoutAddress,
   type CouponValidation,
+  type PaymentMethod,
 } from "@/lib/ordersApi";
 import { useAppSelector } from "@/lib/hooks";
 import { formatINR } from "@/lib/format";
+import { PincodeChecker } from "@/features/serviceability/PincodeChecker";
+import type { ServiceabilityResult } from "@/features/serviceability/serviceabilityApi";
 
 declare global {
   interface Window {
@@ -56,7 +66,23 @@ export default function CheckoutPage() {
   });
   const [error, setError] = useState<string | null>(null);
   const [coupon, setCoupon] = useState<CouponValidation | null>(null);
+  const [serviceability, setServiceability] =
+    useState<ServiceabilityResult | null>(null);
+  const [paymentMethod, setPaymentMethod] =
+    useState<PaymentMethod>("PREPAID");
   const [step, setStep] = useState<"details" | "review">("details");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedPincode = window.localStorage.getItem("delivery-pincode");
+      if (savedPincode && /^\d{6}$/.test(savedPincode)) {
+        setAddress((current) => ({
+          ...current,
+          pincode: current.pincode || savedPincode,
+        }));
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (user?.email) setEmail(user.email);
@@ -81,6 +107,13 @@ export default function CheckoutPage() {
 
   function handleDetailsSubmit(event: FormEvent) {
     event.preventDefault();
+    if (
+      !serviceability?.serviceable ||
+      serviceability.pincode !== address.pincode
+    ) {
+      setError("Check your PIN code and confirm that delivery is available.");
+      return;
+    }
     setError(null);
     setStep("review");
   }
@@ -92,11 +125,18 @@ export default function CheckoutPage() {
         address,
         email: user?.email ?? email.trim(),
         couponCode: coupon?.code,
+        paymentMethod,
       }).unwrap();
 
       storeGuestOrderToken(session.orderId, session.guestAccessToken);
 
+      if (session.paymentMethod === "COD") {
+        router.push("/checkout/success?orderId=" + session.orderId);
+        return;
+      }
+
       if (
+        session.razorpay &&
         config?.razorpayConfigured &&
         typeof window !== "undefined" &&
         window.Razorpay
@@ -196,6 +236,29 @@ export default function CheckoutPage() {
             emailLocked={Boolean(user?.email)}
             address={address}
             onAddressChange={setAddress}
+            serviceability={serviceability}
+            onServiceabilityChange={(result) => {
+              setServiceability(result);
+              if (result?.serviceable) {
+                setAddress((current) => ({
+                  ...current,
+                  city: result.city,
+                  state: result.state,
+                  pincode: result.pincode,
+                }));
+                const payableBeforeFee = coupon?.total ?? cart.subtotal;
+                if (
+                  !result.codEnabled ||
+                  payableBeforeFee + result.codFee >
+                    result.codMaxOrderAmount
+                ) {
+                  setPaymentMethod("PREPAID");
+                } else if (!result.prepaidEnabled) {
+                  setPaymentMethod("COD");
+                }
+              }
+            }}
+            error={error}
             onSubmit={handleDetailsSubmit}
           />
         ) : (
@@ -207,10 +270,24 @@ export default function CheckoutPage() {
             paying={creating}
             error={error}
             devMode={!config?.razorpayConfigured && Boolean(config?.devMode)}
+            serviceability={serviceability}
+            paymentMethod={paymentMethod}
+            onPaymentMethodChange={setPaymentMethod}
+            amountBeforeFee={coupon?.total ?? cart.subtotal}
           />
         )}
 
-        <OrderSummary cart={cart} coupon={coupon} onCouponChange={setCoupon} />
+        <OrderSummary
+          cart={cart}
+          coupon={coupon}
+          onCouponChange={setCoupon}
+          paymentMethod={paymentMethod}
+          paymentFee={
+            paymentMethod === "COD" && serviceability?.serviceable
+              ? serviceability.codFee
+              : 0
+          }
+        />
       </div>
     </main>
   );
@@ -222,6 +299,9 @@ function DetailsForm({
   emailLocked,
   address,
   onAddressChange,
+  serviceability,
+  onServiceabilityChange,
+  error,
   onSubmit,
 }: {
   email: string;
@@ -229,6 +309,9 @@ function DetailsForm({
   emailLocked: boolean;
   address: CheckoutAddress;
   onAddressChange: (address: CheckoutAddress) => void;
+  serviceability: ServiceabilityResult | null;
+  onServiceabilityChange: (result: ServiceabilityResult | null) => void;
+  error: string | null;
   onSubmit: (event: FormEvent) => void;
 }) {
   const setAddress = (patch: Partial<CheckoutAddress>) =>
@@ -331,22 +414,29 @@ function DetailsForm({
               className={inputClass}
             />
           </Field>
-          <Field label="PIN code">
-            <input
-              required
-              inputMode="numeric"
-              autoComplete="postal-code"
-              value={address.pincode}
-              onChange={(event) => setAddress({ pincode: event.target.value })}
-              className={inputClass}
-            />
-          </Field>
+        </div>
+
+        <div className="mt-5">
+          <PincodeChecker
+            value={address.pincode}
+            onValueChange={(pincode) => setAddress({ pincode })}
+            onResult={onServiceabilityChange}
+            source="checkout"
+            heading="Confirm delivery for this PIN code"
+          />
         </div>
       </section>
 
+      {error && (
+        <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
       <button
         type="submit"
-        className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-bold text-primary-foreground hover:brightness-95 sm:w-auto"
+        disabled={!serviceability?.serviceable}
+        className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-bold text-primary-foreground hover:brightness-95 disabled:opacity-50 sm:w-auto"
       >
         Continue to review
       </button>
@@ -362,6 +452,10 @@ function ReviewPanel({
   paying,
   error,
   devMode,
+  serviceability,
+  paymentMethod,
+  onPaymentMethodChange,
+  amountBeforeFee,
 }: {
   email: string;
   address: CheckoutAddress;
@@ -370,7 +464,21 @@ function ReviewPanel({
   paying: boolean;
   error: string | null;
   devMode: boolean;
+  serviceability: ServiceabilityResult | null;
+  paymentMethod: PaymentMethod;
+  onPaymentMethodChange: (method: PaymentMethod) => void;
+  amountBeforeFee: number;
 }) {
+  const supported = serviceability?.serviceable ? serviceability : null;
+  const codEligible = Boolean(
+    supported?.codEnabled &&
+      amountBeforeFee + supported.codFee <= supported.codMaxOrderAmount,
+  );
+  const paymentValid =
+    paymentMethod === "COD"
+      ? codEligible
+      : Boolean(supported?.prepaidEnabled);
+
   return (
     <div className="space-y-5">
       <section className="rounded-xl border border-border p-5 sm:p-6">
@@ -406,7 +514,59 @@ function ReviewPanel({
         </div>
       </section>
 
-      {devMode && (
+      <section className="rounded-xl border border-border p-5 sm:p-6">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Payment method
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={!supported?.prepaidEnabled}
+            onClick={() => onPaymentMethodChange("PREPAID")}
+            className={
+              "rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-45 " +
+              (paymentMethod === "PREPAID"
+                ? "border-foreground bg-foreground text-background"
+                : "border-border hover:bg-muted/40")
+            }
+          >
+            <CreditCard className="h-5 w-5" />
+            <span className="mt-3 block text-sm font-semibold">Pay online</span>
+            <span className="mt-1 block text-xs opacity-70">
+              Secure Razorpay checkout
+            </span>
+          </button>
+          <button
+            type="button"
+            disabled={!codEligible}
+            onClick={() => onPaymentMethodChange("COD")}
+            className={
+              "rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-45 " +
+              (paymentMethod === "COD"
+                ? "border-foreground bg-foreground text-background"
+                : "border-border hover:bg-muted/40")
+            }
+          >
+            <Banknote className="h-5 w-5" />
+            <span className="mt-3 block text-sm font-semibold">
+              Cash on delivery
+            </span>
+            <span className="mt-1 block text-xs opacity-70">
+              {supported?.codFee
+                ? formatINR(supported.codFee) + " handling fee"
+                : "Pay when your order arrives"}
+            </span>
+          </button>
+        </div>
+        {supported?.codEnabled && !codEligible && (
+          <p className="mt-3 text-xs leading-5 text-orange-700">
+            COD is limited to {formatINR(supported.codMaxOrderAmount)} for this
+            PIN code. Online payment is still available.
+          </p>
+        )}
+      </section>
+
+      {devMode && paymentMethod === "PREPAID" && (
         <p className="rounded-lg bg-orange-500/10 px-3 py-2 text-sm text-orange-700 ring-1 ring-inset ring-orange-500/20">
           Development mode: payment will be simulated locally.
         </p>
@@ -421,15 +581,21 @@ function ReviewPanel({
       <button
         type="button"
         onClick={onPay}
-        disabled={paying}
+        disabled={paying || !paymentValid}
         className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-bold text-primary-foreground hover:brightness-95 disabled:opacity-60"
       >
-        <LockKeyhole className="h-4 w-4" />
+        {paymentMethod === "COD" ? (
+          <Banknote className="h-4 w-4" />
+        ) : (
+          <LockKeyhole className="h-4 w-4" />
+        )}
         {paying
-          ? "Starting…"
-          : devMode
-            ? "Place order (dev mode)"
-            : "Pay securely with Razorpay"}
+          ? "Placing order…"
+          : paymentMethod === "COD"
+            ? "Place cash on delivery order"
+            : devMode
+              ? "Place order (dev mode)"
+              : "Pay securely with Razorpay"}
       </button>
       <Link
         href="/cart"
@@ -445,10 +611,14 @@ function OrderSummary({
   cart,
   coupon,
   onCouponChange,
+  paymentMethod,
+  paymentFee,
 }: {
   cart: Cart;
   coupon: CouponValidation | null;
   onCouponChange: (coupon: CouponValidation | null) => void;
+  paymentMethod: PaymentMethod;
+  paymentFee: number;
 }) {
   const [code, setCode] = useState("");
   const [couponError, setCouponError] = useState<string | null>(null);
@@ -470,7 +640,7 @@ function OrderSummary({
     }
   }
 
-  const total = coupon?.total ?? cart.subtotal;
+  const total = (coupon?.total ?? cart.subtotal) + paymentFee;
 
   return (
     <aside className="h-fit rounded-xl border border-border p-5 lg:sticky lg:top-36">
@@ -573,6 +743,12 @@ function OrderSummary({
           <dt>Shipping</dt>
           <dd>Free</dd>
         </div>
+        {paymentMethod === "COD" && paymentFee > 0 && (
+          <div className="flex justify-between text-muted-foreground">
+            <dt>COD handling fee</dt>
+            <dd>{formatINR(paymentFee)}</dd>
+          </div>
+        )}
         <div className="flex justify-between border-t border-border pt-3 text-base font-semibold">
           <dt>Total</dt>
           <dd className="tabular-nums">{formatINR(total)}</dd>

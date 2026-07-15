@@ -27,6 +27,7 @@ router.get("/", requireAuth, async (req, res, next) => {
         select: {
           id: true,
           status: true,
+          paymentMethod: true,
           total: true,
           currency: true,
           createdAt: true,

@@ -36,7 +36,7 @@ services:
       retries: 10
 
   migrate:
-    image: befitbestrong-api:${RELEASE_SHA:-local}
+    image: ${BACKEND_IMAGE:-befitbestrong-api}:${RELEASE_SHA:-local}
     build:
       context: ../backend
     command: ["./node_modules/.bin/prisma", "migrate", "deploy"]
@@ -49,7 +49,7 @@ services:
     networks: [internal]
 
   backend:
-    image: befitbestrong-api:${RELEASE_SHA:-local}
+    image: ${BACKEND_IMAGE:-befitbestrong-api}:${RELEASE_SHA:-local}
     build:
       context: ../backend
     restart: unless-stopped
@@ -73,6 +73,7 @@ services:
       EMAIL_DELIVERY_REQUIRED: ${EMAIL_DELIVERY_REQUIRED:-false}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      ADMIN_NOTIFICATION_EMAIL: ${ADMIN_NOTIFICATION_EMAIL:-}
     ports:
       - "127.0.0.1:4000:4000"
     depends_on:
@@ -83,7 +84,7 @@ services:
     networks: [internal]
 
   frontend:
-    image: befitbestrong-web:${RELEASE_SHA:-local}
+    image: ${FRONTEND_IMAGE:-befitbestrong-web}:${RELEASE_SHA:-local}
     build:
       context: ../frontend
       args:

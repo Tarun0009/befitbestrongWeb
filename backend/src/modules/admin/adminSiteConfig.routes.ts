@@ -4,6 +4,7 @@ import {
   getAdminSiteConfig,
   updateSiteConfig,
 } from "../siteConfig/siteConfig.service.js";
+import { requireAtLeastOneField } from "../../lib/validation.js";
 
 const router = Router();
 
@@ -16,7 +17,8 @@ router.get("/site-config", async (_req, res, next) => {
   }
 });
 
-const patchBody = z
+const patchBody = requireAtLeastOneField(
+  z
   .object({
     // Announcement
     announcementEnabled: z.boolean().optional(),
@@ -69,8 +71,9 @@ const patchBody = z
     spotlightBody: z.string().max(400).nullable().optional(),
     spotlightCtaLabel: z.string().max(40).nullable().optional(),
     spotlightCtaHref: z.string().max(200).nullable().optional(),
-  })
-  .strict();
+    })
+    .strict(),
+);
 
 router.patch("/site-config", async (req, res, next) => {
   try {
