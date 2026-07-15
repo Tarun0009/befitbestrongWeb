@@ -9,6 +9,14 @@ import {
 
 const router = Router();
 router.use(optionalAuth);
+router.use(
+  rateLimit({
+    keyPrefix: "serviceability",
+    max: 120,
+    windowSec: 60,
+    keyBy: (req) => req.auth?.userId ?? req.ip ?? "unknown",
+  }),
+);
 
 const pincodeSchema = z.string().trim().regex(/^\d{6}$/);
 const requestBody = z.object({
