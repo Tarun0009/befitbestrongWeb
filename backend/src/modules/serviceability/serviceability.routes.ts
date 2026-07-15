@@ -40,8 +40,7 @@ const serviceabilityLookupLimiter = rateLimit({
   keyPrefix: "serviceability-lookup",
   max: 30,
   windowSec: 60 * 60,
-  keyBy: (req) =>
-    `${req.auth?.userId ?? req.ip ?? "unknown"}:${String(req.params.pincode ?? "")}`,
+  keyBy: (req) => req.auth?.userId ?? req.ip ?? "unknown",
 });
 
 const serviceAreaRequestLimiter = rateLimit({
