@@ -37,14 +37,17 @@ const requestBody = z.object({
     .default("storefront"),
 });
 
+const serviceabilityLookupLimiter = rateLimit({
+  keyPrefix: "serviceability-lookup",
+  max: 30,
+  windowSec: 60 * 60,
+  keyBy: (req) =>
+    `${req.auth?.userId ?? req.ip ?? "unknown"}:${String(req.params.pincode ?? "")}`,
+});
+
 router.get(
   "/:pincode",
-  rateLimit({
-    keyPrefix: "serviceability-lookup",
-    max: 60,
-    windowSec: 60 * 60,
-    keyBy: (req) => req.auth?.userId ?? req.ip ?? "unknown",
-  }),
+  serviceabilityLookupLimiter,
   async (req, res, next) => {
     try {
       const pincode = pincodeSchema.parse(req.params.pincode);
