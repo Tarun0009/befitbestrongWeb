@@ -21,9 +21,10 @@
 
     --primary: 45 96% 52%;             /* vivid brand yellow */
     --primary-foreground: 40 25% 10%;  /* deep warm charcoal on yellow */
+    --primary-emphasis: 40 92% 29%;    /* accessible brand text on light surfaces */
 
     --muted: 45 40% 96%;               /* pale warm gray-cream */
-    --muted-foreground: 40 8% 45%;
+    --muted-foreground: 40 10% 38%;
 
     --border: 40 15% 88%;
   }
@@ -34,6 +35,7 @@
 
     --primary: 45 96% 55%;
     --primary-foreground: 40 25% 10%;
+    --primary-emphasis: 45 96% 70%;
 
     --muted: 40 15% 15%;
     --muted-foreground: 40 15% 65%;

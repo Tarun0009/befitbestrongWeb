@@ -15,6 +15,7 @@ const config: Config = {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+          emphasis: "hsl(var(--primary-emphasis))",
         },
         muted: {
           DEFAULT: "hsl(var(--muted))",

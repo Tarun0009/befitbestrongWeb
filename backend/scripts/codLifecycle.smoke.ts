@@ -42,11 +42,12 @@ try {
   const variant = product.variants[0]!;
   await addItem(owner, variant.id, 1);
 
-  const checkout = await createCheckoutSession({
+  const { result: checkout } = await createCheckoutSession({
     userId: null,
     contactEmail: "cod-smoke@example.test",
     paymentMethod: "COD",
     cartOwner: owner,
+    idempotencyKey: ("cod-smoke-" + suffix).padEnd(32, "x"),
     address: {
       fullName: "COD Smoke",
       phone: "9999999999",
@@ -116,7 +117,13 @@ try {
   );
 } finally {
   await clearCart(owner);
-  if (orderId) await prisma.order.deleteMany({ where: { id: orderId } });
+  if (orderId) {
+    await prisma.emailOutbox.deleteMany({
+      where: { referenceType: "Order", referenceId: orderId },
+    });
+    await prisma.checkoutAttempt.deleteMany({ where: { orderId } });
+    await prisma.order.deleteMany({ where: { id: orderId } });
+  }
   if (productId) await prisma.product.deleteMany({ where: { id: productId } });
   if (categoryId) await prisma.category.deleteMany({ where: { id: categoryId } });
   await Promise.allSettled([prisma.$disconnect(), redis.quit()]);

@@ -1,7 +1,6 @@
 import type { AdminNotificationType } from "@prisma/client";
 import { env } from "../../config/env.js";
-import { prisma } from "../../config/db.js";
-import { logger } from "../../config/logger.js";
+import { enqueueEmail, type EmailOutboxTx } from "./emailOutbox.service.js";
 
 function escapeHtml(value: string) {
   return value
@@ -13,29 +12,18 @@ function escapeHtml(value: string) {
 }
 
 function formatAmount(amount: number, currency: string) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency,
-  }).format(amount / 100);
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency }).format(
+    amount / 100,
+  );
 }
 
-export async function sendAdminOrderNotificationEmail(
+export async function queueAdminOrderNotificationEmail(
+  tx: EmailOutboxTx,
   orderId: string,
   type: AdminNotificationType,
 ) {
-  if (
-    !env.RESEND_API_KEY ||
-    !env.EMAIL_FROM ||
-    !env.ADMIN_NOTIFICATION_EMAIL
-  ) {
-    logger.debug(
-      { orderId, type },
-      "admin order email skipped: admin notification email is not configured",
-    );
-    return;
-  }
-
-  const order = await prisma.order.findUnique({
+  if (!env.ADMIN_NOTIFICATION_EMAIL) return null;
+  const order = await tx.order.findUnique({
     where: { id: orderId },
     select: {
       id: true,
@@ -47,8 +35,7 @@ export async function sendAdminOrderNotificationEmail(
       _count: { select: { items: true } },
     },
   });
-  if (!order) return;
-
+  if (!order) return null;
   const address = order.addressSnapshot as {
     fullName?: string;
     city?: string;
@@ -59,9 +46,7 @@ export async function sendAdminOrderNotificationEmail(
     (isCod ? "New COD order " : "Payment confirmed ") +
     "#" +
     order.id.slice(-8).toUpperCase();
-  const orderUrl =
-    env.FRONTEND_URL.replace(/\/$/, "") + "/admin/orders/" + order.id;
-
+  const orderUrl = env.FRONTEND_URL.replace(/\/$/, "") + "/admin/orders/" + order.id;
   const html =
     "<div style='font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#1f1b14'>" +
     "<div style='background:#171714;color:white;padding:18px 24px;font-weight:700'>beFitBeStrong Admin</div>" +
@@ -86,32 +71,13 @@ export async function sendAdminOrderNotificationEmail(
     "<p style='margin-top:20px;color:#6f675d;font-size:12px'>This email is a secondary alert. The admin notification center remains the source of truth.</p>" +
     "</div></div>";
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: "Bearer " + env.RESEND_API_KEY,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: env.EMAIL_FROM,
-      to: [env.ADMIN_NOTIFICATION_EMAIL],
-      subject,
-      html,
-    }),
+  return enqueueEmail(tx, {
+    idempotencyKey: `admin-order/${type}/${order.id}`,
+    template: "ADMIN_ORDER_ALERT",
+    recipientEmail: env.ADMIN_NOTIFICATION_EMAIL,
+    subject,
+    html,
+    referenceType: "Order",
+    referenceId: order.id,
   });
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-      "Admin notification email failed with " +
-        response.status +
-        ": " +
-        body.slice(0, 300),
-    );
-  }
-
-  logger.info(
-    { orderId, type, to: env.ADMIN_NOTIFICATION_EMAIL },
-    "admin order email sent",
-  );
 }
-

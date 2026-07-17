@@ -50,7 +50,7 @@ plus a protected production approval is a safer first professional setup.
 | File | Responsibility |
 |---|---|
 | `.github/workflows/ci.yml` | Reusable backend and frontend quality gate |
-| `.github/workflows/security.yml` | CodeQL, dependency review, and registry audits |
+| `.github/workflows/security.yml` | CodeQL, dependency review, and OSV lockfile scans |
 | `.github/workflows/release.yml` | Builds and publishes versioned GHCR images |
 | `.github/workflows/deploy-production.yml` | Protected deployment of one exact release SHA |
 | `.github/dependabot.yml` | Weekly dependency and GitHub Actions update PRs |
@@ -94,8 +94,10 @@ the same standard.
    broader detection.
 2. **Dependency review** runs on pull requests and blocks newly introduced
    dependencies with high or critical known vulnerabilities.
-3. **Registry audit** checks production dependencies in both applications weekly
-   and when manually requested.
+3. **OSV-Scanner** checks both pnpm lockfiles on every security workflow run and
+   uploads findings to code scanning. It replaces `pnpm audit`, whose legacy npm
+   registry endpoints are no longer available, and it understands
+   `pnpm-lock.yaml` directly.
 
 Dependabot opens grouped weekly pull requests for backend packages, frontend
 packages, Docker base images, and GitHub Actions. Treat those as normal
@@ -457,7 +459,7 @@ Complete these in order:
 2. Intentionally introduce a TypeScript error, watch CI fail, then fix it in the same
    branch.
 3. Read a Dependabot PR and explain the lockfile changes before merging.
-4. Run the Security workflow manually and locate its CodeQL and audit output.
+4. Run the Security workflow manually and locate its CodeQL and OSV output.
 5. Build a prerelease tag on a test branch only after changing the tag pattern in a
    temporary workflow; do not use a production tag for experiments.
 6. On a disposable server, deploy a release, deploy a newer release, then roll back

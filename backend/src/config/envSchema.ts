@@ -8,6 +8,8 @@ const stringBoolean = z
   .default("false")
   .transform((value) => value === "true");
 
+const RAZORPAY_PRODUCTION_API = "https://api.razorpay.com/v1";
+
 function serviceUrl(protocols: string[], label: string) {
   return z.string().url().superRefine((value, context) => {
     const protocol = new URL(value).protocol;
@@ -36,6 +38,37 @@ const baseEnvSchema = z.object({
   CORS_ORIGIN: z.string().min(1).default("http://localhost:3005"),
   FRONTEND_URL: z.string().url().default("http://localhost:3005"),
 
+  CHECKOUT_RESERVATION_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(5)
+    .max(60)
+    .default(15),
+  CHECKOUT_EXPIRY_SCAN_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(15)
+    .max(3600)
+    .default(60),
+  CHECKOUT_EXPIRY_BATCH_SIZE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(500)
+    .default(50),
+  REFUND_RECONCILIATION_SCAN_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(60)
+    .max(3600)
+    .default(300),
+  REFUND_RECONCILIATION_BATCH_SIZE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(25),
+
   FIREBASE_PROJECT_ID: emptyToUndefined(z.string().min(1).optional()),
   FIREBASE_CLIENT_EMAIL: emptyToUndefined(z.string().email().optional()),
   FIREBASE_PRIVATE_KEY: emptyToUndefined(z.string().min(1).optional()),
@@ -43,11 +76,61 @@ const baseEnvSchema = z.object({
   RAZORPAY_KEY_ID: emptyToUndefined(z.string().min(1).optional()),
   RAZORPAY_KEY_SECRET: emptyToUndefined(z.string().min(1).optional()),
   RAZORPAY_WEBHOOK_SECRET: emptyToUndefined(z.string().min(16).optional()),
+  RAZORPAY_API_BASE_URL: z.string().url().default(RAZORPAY_PRODUCTION_API),
+  RAZORPAY_HTTP_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(500)
+    .max(30_000)
+    .default(5_000),
+  RAZORPAY_HTTP_MAX_ATTEMPTS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(5)
+    .default(3),
+  RAZORPAY_HTTP_RETRY_BASE_MS: z.coerce
+    .number()
+    .int()
+    .min(50)
+    .max(2_000)
+    .default(250),
 
   RESEND_API_KEY: emptyToUndefined(z.string().min(1).optional()),
   EMAIL_FROM: emptyToUndefined(z.string().email().optional()),
   ADMIN_NOTIFICATION_EMAIL: emptyToUndefined(z.string().email().optional()),
   EMAIL_DELIVERY_REQUIRED: stringBoolean,
+  EMAIL_HTTP_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(500)
+    .max(30_000)
+    .default(8_000),
+  EMAIL_OUTBOX_SCAN_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(10)
+    .max(3600)
+    .default(30),
+  EMAIL_OUTBOX_BATCH_SIZE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(25),
+  EMAIL_OUTBOX_MAX_ATTEMPTS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .default(8),
+
+  COURIER_PROVIDER: z.enum(["manual", "shiprocket"]).default("manual"),
+  SHIPROCKET_EMAIL: emptyToUndefined(z.string().email().optional()),
+  SHIPROCKET_PASSWORD: emptyToUndefined(z.string().min(8).optional()),
+  SHIPROCKET_PICKUP_LOCATION: emptyToUndefined(z.string().min(1).max(100).optional()),
+  SHIPROCKET_PICKUP_PINCODE: emptyToUndefined(z.string().regex(/^\d{6}$/).optional()),
+  SHIPROCKET_WEBHOOK_SECRET: emptyToUndefined(z.string().min(16).optional()),
 });
 
 type ParsedEnvironment = z.infer<typeof baseEnvSchema>;
@@ -60,7 +143,12 @@ type OptionalKey =
   | "RAZORPAY_KEY_SECRET"
   | "RAZORPAY_WEBHOOK_SECRET"
   | "RESEND_API_KEY"
-  | "EMAIL_FROM";
+  | "EMAIL_FROM"
+  | "SHIPROCKET_EMAIL"
+  | "SHIPROCKET_PASSWORD"
+  | "SHIPROCKET_PICKUP_LOCATION"
+  | "SHIPROCKET_PICKUP_PINCODE"
+  | "SHIPROCKET_WEBHOOK_SECRET";
 
 function validateGroup(
   data: ParsedEnvironment,
@@ -183,6 +271,19 @@ export const backendEnvSchema = baseEnvSchema.superRefine((data, context) => {
     "email delivery",
     data.EMAIL_DELIVERY_REQUIRED,
   );
+  validateGroup(
+    data,
+    context,
+    [
+      "SHIPROCKET_EMAIL",
+      "SHIPROCKET_PASSWORD",
+      "SHIPROCKET_PICKUP_LOCATION",
+      "SHIPROCKET_PICKUP_PINCODE",
+      "SHIPROCKET_WEBHOOK_SECRET",
+    ],
+    "Shiprocket",
+    data.COURIER_PROVIDER === "shiprocket",
+  );
 
   if (
     deployed &&
@@ -204,6 +305,13 @@ export const backendEnvSchema = baseEnvSchema.superRefine((data, context) => {
       code: z.ZodIssueCode.custom,
       path: ["RAZORPAY_KEY_ID"],
       message: "Production requires a Razorpay live key (rzp_live_...)",
+    });
+  }
+  if (deployed && data.RAZORPAY_API_BASE_URL !== RAZORPAY_PRODUCTION_API) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["RAZORPAY_API_BASE_URL"],
+      message: "Deployed environments must use the official Razorpay API",
     });
   }
 });

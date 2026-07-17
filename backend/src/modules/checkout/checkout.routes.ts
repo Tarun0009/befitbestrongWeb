@@ -46,6 +46,16 @@ const sessionBody = z.object({
   address: addressBody,
 });
 
+const idempotencyKey = z
+  .string()
+  .trim()
+  .min(32)
+  .max(128)
+  .regex(
+    /^[A-Za-z0-9._~-]+$/,
+    "Idempotency-Key must contain only URL-safe characters",
+  );
+
 function resolveCheckoutOwner(req: Request): CartOwner {
   if (req.auth) {
     return { type: "user", id: req.auth.userId };
@@ -84,6 +94,7 @@ router.post("/coupon/validate", async (req, res, next) => {
 router.post("/session", async (req, res, next) => {
   try {
     const { address, email, couponCode, paymentMethod } = sessionBody.parse(req.body);
+    const checkoutKey = idempotencyKey.parse(req.get("Idempotency-Key"));
     const contactEmail = (req.auth?.email ?? email)?.trim().toLowerCase();
     if (!contactEmail) {
       throw new HttpError(
@@ -99,8 +110,10 @@ router.post("/session", async (req, res, next) => {
       cartOwner: resolveCheckoutOwner(req),
       address,
       paymentMethod,
+      idempotencyKey: checkoutKey,
     });
-    res.status(201).json(result);
+    if (result.replayed) res.setHeader("Idempotency-Replayed", "true");
+    res.status(result.replayed ? 200 : 201).json(result.result);
   } catch (err) {
     next(err);
   }

@@ -107,7 +107,7 @@ Admin:
 - Request emails are used for expansion/contact consent only and are not exposed in aggregate admin lists by default.
 - Admin routes retain Firebase authentication and `ADMIN` role enforcement.
 - Admin notifications are persisted in PostgreSQL; UI polling improves freshness but is not the source of truth.
-- Email is a secondary alert. Dashboard notifications and order records remain available if email delivery fails.
+- Email is a secondary alert committed through the durable transactional outbox. Dashboard notifications and order records remain available if provider delivery fails.
 - Coverage changes are reversible per PIN with `active`, `prepaidEnabled`, and `codEnabled` flags.
 
 ## Acceptance checks
@@ -127,5 +127,5 @@ Admin:
 - Automatic expiry for abandoned prepaid reservations.
 - Courier partner serviceability and shipment webhooks layered on top of the internal allow-list.
 - Return-to-origin, partial refund, and COD remittance reconciliation workflows.
-- Transactional email/SMS alert preferences and an outbox-backed delivery worker.
+- Transactional email/SMS channel preferences and SMS delivery infrastructure. Email outbox delivery is complete.
 

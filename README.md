@@ -24,6 +24,7 @@ secure checkout, account features, and an operational admin console.
 - Role-protected dashboard and customer management
 - Product, category, variant, bundle, and subscription management
 - Order lifecycle controls with auditable prepaid/COD states, refunds, and persistent alerts
+- Transactional email delivery console with retry history and dead-letter recovery
 - Service-area, COD-policy, delivery-estimate, and expansion-demand management
 - Homepage merchandising, coupons, review moderation, demand, and loyalty tools
 - Revenue, order, product, inventory, referral, and retention reporting
@@ -35,6 +36,8 @@ secure checkout, account features, and an operational admin console.
 - PostgreSQL full-text search with weighted ranking and GIN indexing
 - Redis caching, carts, rate limiting, and BullMQ background processing
 - Idempotent Razorpay webhooks and concurrency-safe stock reservation
+- PostgreSQL-backed transactional email outbox with bounded Resend delivery
+- Playwright desktop/mobile journeys with automated WCAG A/AA checks in CI
 - Fail-fast production configuration, health checks, Docker images, and release migrations
 
 ## Architecture
@@ -65,7 +68,7 @@ PostgreSQL :5434     Redis :6381
 | Authentication | Firebase Auth and Firebase Admin SDK |
 | Payments | Razorpay and signed webhooks |
 | Background work | BullMQ |
-| Testing | Jest and ts-jest |
+| Testing | Jest, ts-jest, Playwright, and axe-core |
 | Deployment | Docker Compose and multi-stage non-root images |
 
 ## Local development
@@ -138,12 +141,19 @@ pnpm build
 
 cd ../frontend
 pnpm typecheck
+pnpm lint
 pnpm build
+pnpm exec playwright install chromium
+pnpm test:e2e
 ```
 
 The backend test suite covers environment policy, state transitions, payment
 signatures, caching, reviews, stock alerts, loyalty, bundles, subscriptions, and
-discovery rules.
+discovery rules. The browser gate starts compiled services and checks the public
+catalog, admin authentication boundary, isolated guest COD and Razorpay/webhook
+prepaid checkout, and automated WCAG A/AA results in desktop and mobile Chromium.
+The CI architecture check also protects feature-folder ownership. See the
+[end-to-end testing guide](./docs/END_TO_END_TESTING.md).
 
 ## Delivery automation
 
@@ -180,12 +190,18 @@ and [CI/CD guide](./docs/CI_CD_GUIDE.md) before deploying.
 ## Documentation
 
 - [Architecture](./docs/ARCHITECTURE.md)
+- [Feature-based folder structure](./docs/FEATURE_STRUCTURE.md)
 - [Serviceability, COD, and admin notifications](./docs/SERVICEABILITY_COD_ADMIN_NOTIFICATIONS.md)
 - [Authentication and authorization](./docs/AUTH.md)
 - [Caching](./docs/CACHING.md)
 - [Search](./docs/SEARCH.md)
 - [Cart design](./docs/CART.md)
 - [Payment webhooks](./docs/WEBHOOKS.md)
+- [Payment event validation](./docs/PAYMENT_EVENT_VALIDATION.md)
+- [Provider HTTP reliability](./docs/PROVIDER_HTTP_RELIABILITY.md)
+- [Refund intent ledger](./docs/REFUND_LEDGER.md)
+- [Durable transactional email outbox](./docs/EMAIL_OUTBOX.md)
+- [End-to-end browser and accessibility testing](./docs/END_TO_END_TESTING.md)
 - [Order state machine](./docs/ORDER_STATE_MACHINE.md)
 - [Reviews](./docs/REVIEWS.md)
 - [Wishlist and stock alerts](./docs/WISHLIST.md)

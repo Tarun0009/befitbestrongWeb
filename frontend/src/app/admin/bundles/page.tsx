@@ -42,7 +42,7 @@ export default function AdminBundlesPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const options = optionsData?.items ?? [];
+  const options = useMemo(() => optionsData?.items ?? [], [optionsData?.items]);
   const optionById = useMemo(() => new Map(options.map((option) => [option.id, option])), [options]);
   const componentTotal = components.reduce((sum, component) => {
     const option = optionById.get(component.variantId);

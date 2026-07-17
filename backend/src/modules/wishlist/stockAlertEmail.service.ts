@@ -1,6 +1,6 @@
+import type { EmailOutboxTx } from "../notifications/emailOutbox.service.js";
+import { enqueueEmail } from "../notifications/emailOutbox.service.js";
 import { env } from "../../config/env.js";
-import { prisma } from "../../config/db.js";
-import { logger } from "../../config/logger.js";
 import { shouldSendBackInStock } from "./stockAlertPolicy.js";
 
 function escapeHtml(value: string): string {
@@ -12,38 +12,24 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#039;");
 }
 
-export async function sendBackInStockNotifications(
+export async function queueBackInStockNotifications(
+  tx: EmailOutboxTx,
   variantId: string,
   previousStock: number,
   nextStock: number,
 ) {
   if (!shouldSendBackInStock(previousStock, nextStock)) {
-    return { configured: true, attempted: 0, sent: 0 };
+    return { attempted: 0, queued: 0 };
   }
-
-  if (!env.RESEND_API_KEY || !env.EMAIL_FROM) {
-    logger.debug(
-      { variantId, previousStock, nextStock },
-      "back-in-stock email skipped: Resend is not configured",
-    );
-    return { configured: false, attempted: 0, sent: 0 };
-  }
-
-  const alerts = await prisma.stockAlert.findMany({
+  const alerts = await tx.stockAlert.findMany({
     where: { variantId, active: true },
     include: {
-      user: { select: { email: true, name: true } },
+      user: { select: { email: true } },
       variant: {
-        include: {
-          product: {
-            select: { name: true, slug: true },
-          },
-        },
+        include: { product: { select: { name: true, slug: true } } },
       },
     },
   });
-
-  const sentIds: string[] = [];
   for (const alert of alerts) {
     const product = alert.variant.product;
     const variantLabel =
@@ -66,58 +52,17 @@ export async function sendBackInStockNotifications(
       "' style='display:inline-block;background:#1f1b14;color:#fff;padding:12px 18px;text-decoration:none;border-radius:6px'>Shop now</a></p>" +
       "<p style='color:#6f675d;font-size:13px'>Stock is not reserved and may sell out again.</p>" +
       "</div></div>";
-
-    try {
-      const response = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer " + env.RESEND_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: env.EMAIL_FROM,
-          to: [alert.user.email],
-          subject,
-          html,
-        }),
-      });
-      if (!response.ok) {
-        const body = await response.text();
-        throw new Error(
-          "Resend email failed with " +
-            response.status +
-            ": " +
-            body.slice(0, 300),
-        );
-      }
-      sentIds.push(alert.id);
-    } catch (error) {
-      logger.error(
-        { error, alertId: alert.id, variantId },
-        "back-in-stock email failed",
-      );
-    }
-  }
-
-  if (sentIds.length > 0) {
-    await prisma.stockAlert.updateMany({
-      where: { id: { in: sentIds } },
-      data: { active: false, notifiedAt: new Date() },
+    const version = alert.updatedAt.toISOString();
+    await enqueueEmail(tx, {
+      idempotencyKey: `stock-alert/${alert.id}/${alert.updatedAt.getTime()}`,
+      template: "BACK_IN_STOCK",
+      recipientEmail: alert.user.email,
+      subject,
+      html,
+      referenceType: "StockAlert",
+      referenceId: alert.id,
+      referenceVersion: version,
     });
   }
-
-  logger.info(
-    {
-      variantId,
-      attempted: alerts.length,
-      sent: sentIds.length,
-    },
-    "back-in-stock notification run completed",
-  );
-
-  return {
-    configured: true,
-    attempted: alerts.length,
-    sent: sentIds.length,
-  };
+  return { attempted: alerts.length, queued: alerts.length };
 }

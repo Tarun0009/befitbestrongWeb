@@ -3,7 +3,18 @@ import { z } from "zod";
 import { prisma } from "../../config/db.js";
 import { HttpError } from "../../middleware/errorHandler.js";
 import { transition, TRANSITIONS } from "../orders/stateMachine.js";
-import type { OrderStatus } from "@prisma/client";
+import { Prisma, type OrderStatus } from "@prisma/client";
+import { manualShipmentSchema } from "../fulfillment/fulfillment.policy.js";
+import {
+  createManualShipment,
+  markOpenShipmentsDelivered,
+} from "../fulfillment/fulfillment.service.js";
+import {
+  getRefundSummary,
+  reconcileRefundIntent,
+  requestRefund,
+  summarizeRefundState,
+} from "../refunds/refund.service.js";
 
 const router = Router();
 
@@ -72,12 +83,27 @@ router.get("/orders/:id", async (req, res, next) => {
         payment: true,
         user: { select: { id: true, email: true, name: true } },
         history: { orderBy: { createdAt: "desc" } },
+        shipments: {
+          orderBy: { createdAt: "desc" },
+          include: { events: { orderBy: { occurredAt: "desc" } } },
+        },
+        refundIntents: {
+          orderBy: { createdAt: "desc" },
+          include: { events: { orderBy: { createdAt: "desc" } } },
+        },
       },
     });
     if (!order) throw new HttpError(404, "order_not_found", "Order not found");
     res.json({
       order,
-      allowedTransitions: TRANSITIONS[order.status],
+      refundSummary: summarizeRefundState({
+        orderStatus: order.status,
+        payment: order.payment,
+        intents: order.refundIntents,
+      }),
+      allowedTransitions: TRANSITIONS[order.status].filter(
+        (status) => status !== "REFUNDED",
+      ),
     });
   } catch (err) {
     next(err);
@@ -86,6 +112,72 @@ router.get("/orders/:id", async (req, res, next) => {
 
 const noteBody = z.object({
   note: z.string().max(500).optional(),
+});
+
+router.post("/orders/:id/shipments", async (req, res, next) => {
+  try {
+    const id = z.string().cuid().parse(req.params.id);
+    const input = manualShipmentSchema.parse(req.body);
+    const trackingNumber = input.trackingNumber.toUpperCase();
+
+    const order = await prisma.order.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    if (!order) {
+      throw new HttpError(404, "order_not_found", "Order not found");
+    }
+    if (!["PAID", "CONFIRMED", "SHIPPED"].includes(order.status)) {
+      throw new HttpError(
+        409,
+        "order_not_dispatchable",
+        `Cannot dispatch an order in ${order.status} status`,
+      );
+    }
+
+    await transition(prisma, id, "SHIPPED", {
+      actor: {
+        kind: "admin",
+        userId: req.auth!.userId,
+        note: input.note || `Dispatched with ${input.carrier}`,
+      },
+      transactionWork: async (tx) => {
+        await createManualShipment(tx, id, req.auth!.userId, {
+          ...input,
+          trackingNumber,
+        });
+      },
+    });
+
+    const shipment = await prisma.shipment.findUniqueOrThrow({
+      where: {
+        carrier_trackingNumber: {
+          carrier: input.carrier,
+          trackingNumber,
+        },
+      },
+      include: { events: { orderBy: { occurredAt: "desc" } } },
+    });
+    res.status(201).json({
+      shipment,
+      order: { id, status: "SHIPPED" as const },
+    });
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      next(
+        new HttpError(
+          409,
+          "tracking_number_exists",
+          "This carrier and tracking number are already in use",
+        ),
+      );
+      return;
+    }
+    next(err);
+  }
 });
 
 async function adminTransition(
@@ -103,6 +195,10 @@ async function adminTransition(
         userId: req.auth!.userId,
         note,
       },
+      transactionWork:
+        to === "DELIVERED"
+          ? (tx) => markOpenShipmentsDelivered(tx, id, note)
+          : undefined,
     });
     res.json({ order: updated });
   } catch (err) {
@@ -119,8 +215,45 @@ router.post("/orders/:id/deliver", (req, res, next) =>
 router.post("/orders/:id/cancel", (req, res, next) =>
   adminTransition(req, res, next, "CANCELLED"),
 );
-router.post("/orders/:id/refund", (req, res, next) =>
-  adminTransition(req, res, next, "REFUNDED"),
-);
+const refundBody = z.object({
+  amount: z.number().int().positive(),
+  reason: z.string().trim().min(3).max(500),
+});
+
+router.post("/orders/:id/refunds", async (req, res, next) => {
+  try {
+    const orderId = z.string().cuid().parse(req.params.id);
+    const idempotencyKey = req.header("idempotency-key")?.trim();
+    if (!idempotencyKey || idempotencyKey.length < 16 || idempotencyKey.length > 128) {
+      throw new HttpError(
+        400,
+        "idempotency_key_required",
+        "Idempotency-Key must contain 16 to 128 characters",
+      );
+    }
+    const body = refundBody.parse(req.body);
+    const result = await requestRefund({
+      orderId,
+      requestedById: req.auth!.userId,
+      idempotencyKey,
+      amount: body.amount,
+      reason: body.reason,
+    });
+    res.status(202).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/refunds/:id/reconcile", async (req, res, next) => {
+  try {
+    const id = z.string().cuid().parse(req.params.id);
+    const intent = await reconcileRefundIntent(id);
+    const result = await getRefundSummary(intent.orderId);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;

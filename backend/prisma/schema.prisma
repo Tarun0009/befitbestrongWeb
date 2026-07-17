@@ -39,6 +39,69 @@ enum PaymentMethod {
   COD
 }
 
+enum CheckoutAttemptStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum WebhookProcessingOutcome {
+  PROCESSED
+  IGNORED
+  REJECTED
+  RECONCILIATION_REQUIRED
+}
+
+enum RefundIntentStatus {
+  REQUESTED
+  PROCESSING
+  PENDING
+  PROCESSED
+  FAILED
+  RECONCILIATION_REQUIRED
+}
+
+enum RefundKind {
+  FULL
+  PARTIAL
+}
+
+enum EmailOutboxStatus {
+  PENDING
+  PROCESSING
+  SENT
+  DEAD_LETTER
+  CANCELLED
+}
+
+enum EmailTemplate {
+  ORDER_STATUS
+  ADMIN_ORDER_ALERT
+  SUBSCRIPTION_RENEWAL
+  BACK_IN_STOCK
+}
+
+enum ShipmentStatus {
+  LABEL_CREATED
+  PICKED_UP
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  DELIVERY_FAILED
+  RTO_IN_TRANSIT
+  RETURNED
+  CANCELLED
+}
+
+enum CourierBookingStatus {
+  PENDING
+  ORDER_CREATED
+  AWB_ASSIGNED
+  READY
+  FAILED
+  CANCELLED
+}
+
 enum ServiceZone {
   DELHI
   NOIDA
@@ -320,6 +383,27 @@ model ServiceAreaRequest {
   @@index([productId, createdAt(sort: Desc)])
 }
 
+model CheckoutAttempt {
+  id             String                @id @default(cuid())
+  ownerHash      String
+  keyHash        String
+  requestHash    String
+  status         CheckoutAttemptStatus @default(PROCESSING)
+  orderId        String?               @unique
+  order          Order?                @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  leaseExpiresAt DateTime
+  failureStatus  Int?
+  failureCode    String?
+  failureMessage String?
+  completedAt    DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@unique([ownerHash, keyHash])
+  @@index([status, leaseExpiresAt])
+  @@index([createdAt])
+}
+
 model Order {
   id                   String               @id @default(cuid())
   userId               String?
@@ -344,13 +428,94 @@ model Order {
   items                OrderItem[]
   payment              Payment?
   history              OrderStatusHistory[]
+  shipments            Shipment[]
+  courierBookings      CourierBooking[]
   adminNotifications   AdminNotification[]
+  checkoutAttempt      CheckoutAttempt?
+  refundIntents        RefundIntent[]
   providerOrderId      String?              @unique // Razorpay order id
+  reservationExpiresAt DateTime?
+  reservationExpiredAt DateTime?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([status])
+  @@index([status, reservationExpiresAt])
+}
+
+model Shipment {
+  id                  String          @id @default(cuid())
+  orderId             String
+  order               Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  carrier             String
+  service             String?
+  trackingNumber      String
+  trackingUrl         String?
+  provider            String          @default("manual")
+  providerOrderId     String?
+  providerShipmentId  String?
+  labelUrl            String?
+  status              ShipmentStatus  @default(IN_TRANSIT)
+  estimatedDeliveryAt DateTime?
+  shippedAt           DateTime?
+  deliveredAt         DateTime?
+  pickupScheduledAt   DateTime?
+  lastSyncedAt        DateTime?
+  syncError           String?
+  createdById         String?
+  metadata            Json?
+  events              ShipmentEvent[]
+  courierBooking      CourierBooking?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@unique([carrier, trackingNumber])
+  @@unique([provider, providerShipmentId])
+  @@index([orderId, createdAt(sort: Desc)])
+  @@index([status, updatedAt(sort: Desc)])
+}
+
+model ShipmentEvent {
+  id              String         @id @default(cuid())
+  shipmentId      String
+  shipment        Shipment       @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  status          ShipmentStatus
+  description     String?
+  location        String?
+  source          String         @default("manual")
+  externalEventId String?
+  occurredAt      DateTime       @default(now())
+  createdAt       DateTime       @default(now())
+
+  @@unique([shipmentId, externalEventId])
+  @@index([shipmentId, occurredAt(sort: Desc)])
+}
+
+model CourierBooking {
+  id                 String               @id @default(cuid())
+  orderId            String
+  order              Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  shipmentId         String?              @unique
+  shipment           Shipment?            @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  provider           String
+  status             CourierBookingStatus @default(PENDING)
+  externalOrderRef   String
+  providerOrderId    String?
+  providerShipmentId String?
+  courierId          String?
+  carrier            String?
+  trackingNumber     String?
+  labelUrl           String?
+  request            Json
+  error              String?
+  attemptCount       Int                  @default(0)
+  createdById        String
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@unique([orderId, provider])
+  @@index([status, updatedAt(sort: Desc)])
 }
 
 model OrderStatusHistory {
@@ -395,11 +560,113 @@ model Payment {
   currency          String        @default("INR")
   status            PaymentStatus @default(CREATED)
   rawPayload        Json?
+  refundIntents     RefundIntent[]
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
   @@index([providerOrderId])
   @@index([providerPaymentId])
+}
+
+model RefundIntent {
+  id                     String             @id @default(cuid())
+  orderId                String
+  order                  Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paymentId              String
+  payment                Payment            @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  requestedById          String
+  requestKeyHash         String
+  requestHash            String
+  provider               String
+  providerPaymentId      String?
+  providerRefundId       String?            @unique
+  providerIdempotencyKey String             @unique
+  kind                   RefundKind
+  amount                 Int
+  currency               String
+  reason                 String
+  status                 RefundIntentStatus @default(REQUESTED)
+  providerStatus         String?
+  attemptCount           Int                @default(0)
+  leaseExpiresAt         DateTime?
+  nextReconcileAt        DateTime?
+  lastAttemptAt          DateTime?
+  lastReconciledAt       DateTime?
+  failureCode            String?
+  failureMessage         String?
+  rawPayload             Json?
+  processedAt            DateTime?
+  failedAt               DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  events                 RefundEvent[]
+
+  @@unique([orderId, requestKeyHash])
+  @@index([orderId, createdAt(sort: Desc)])
+  @@index([paymentId, status])
+  @@index([status, nextReconcileAt])
+}
+
+model RefundEvent {
+  id             String              @id @default(cuid())
+  refundIntentId String
+  refundIntent   RefundIntent        @relation(fields: [refundIntentId], references: [id], onDelete: Cascade)
+  fromStatus     RefundIntentStatus?
+  toStatus       RefundIntentStatus
+  source         String
+  message        String?
+  payload        Json?
+  createdAt      DateTime            @default(now())
+
+  @@index([refundIntentId, createdAt])
+}
+
+model EmailOutbox {
+  id                     String            @id @default(cuid())
+  idempotencyKey         String            @unique
+  requestHash            String
+  providerIdempotencyKey String            @unique
+  template               EmailTemplate
+  recipientEmail         String
+  fromEmail              String?
+  subject                String
+  html                   String
+  referenceType          String
+  referenceId            String
+  referenceVersion       String?
+  status                 EmailOutboxStatus @default(PENDING)
+  attemptCount           Int               @default(0)
+  maxAttempts            Int               @default(8)
+  nextAttemptAt          DateTime           @default(now())
+  leaseExpiresAt         DateTime?
+  lastAttemptAt          DateTime?
+  providerMessageId      String?
+  lastErrorCode          String?
+  lastErrorMessage       String?
+  sentAt                 DateTime?
+  deadLetteredAt         DateTime?
+  cancelledAt            DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  events                 EmailOutboxEvent[]
+
+  @@index([status, nextAttemptAt])
+  @@index([referenceType, referenceId])
+  @@index([template, createdAt(sort: Desc)])
+}
+
+model EmailOutboxEvent {
+  id            String            @id @default(cuid())
+  emailOutboxId String
+  emailOutbox   EmailOutbox       @relation(fields: [emailOutboxId], references: [id], onDelete: Cascade)
+  fromStatus    EmailOutboxStatus?
+  toStatus      EmailOutboxStatus
+  source        String
+  message       String?
+  payload       Json?
+  createdAt     DateTime          @default(now())
+
+  @@index([emailOutboxId, createdAt])
 }
 
 model AdminNotification {
@@ -429,17 +696,24 @@ model AdminNotificationReceipt {
 }
 
 model WebhookEvent {
-  id          String    @id @default(cuid())
-  provider    String // "razorpay"
-  eventId     String // provider-side event id (unique per provider)
-  eventType   String
-  signature   String?
-  payload     Json
-  processedAt DateTime?
-  createdAt   DateTime  @default(now())
+  id                String                    @id @default(cuid())
+  provider          String // "razorpay"
+  eventId           String // provider-side event id (unique per provider)
+  eventType         String
+  signature         String?
+  payload           Json
+  outcome           WebhookProcessingOutcome?
+  processingCode    String?
+  processingMessage String?
+  localOrderId      String?
+  providerPaymentId String?
+  processedAt       DateTime?
+  createdAt         DateTime                  @default(now())
 
   @@unique([provider, eventId])
   @@index([provider, eventType])
+  @@index([provider, outcome, createdAt])
+  @@index([localOrderId, createdAt])
 }
 
 model Coupon {

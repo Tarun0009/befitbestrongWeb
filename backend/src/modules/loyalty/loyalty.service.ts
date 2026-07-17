@@ -454,15 +454,21 @@ async function reverseOrderRewards(
     },
   });
   if (earned && earned.points > 0) {
+    const reversed = await tx.loyaltyEntry.aggregate({
+      where: { orderId: input.orderId, type: "ORDER_REFUND_REVERSAL" },
+      _sum: { points: true },
+    });
+    const alreadyReversed = Math.abs(Math.min(0, reversed._sum.points ?? 0));
+    const remaining = Math.max(0, earned.points - alreadyReversed);
     await recordLedgerEntry(tx, {
       userId: input.userId,
       type: "ORDER_REFUND_REVERSAL",
-      points: -earned.points,
+      points: -remaining,
       orderId: input.orderId,
       description: "Order points reversed after refund",
       idempotencyKey:
         "loyalty:order:refund:" + input.orderId,
-      earnedDelta: -earned.points,
+      earnedDelta: -remaining,
     });
   }
 
@@ -507,6 +513,49 @@ async function reverseOrderRewards(
       status: "CANCELLED",
       cancelledAt: new Date(),
     },
+  });
+}
+
+export async function handlePartialRefundLoyalty(
+  tx: LoyaltyTx,
+  input: {
+    orderId: string;
+    userId: string | null;
+    refundIntentId: string;
+    cumulativeRefundedAmount: number;
+    paymentAmount: number;
+  },
+) {
+  if (!input.userId || input.paymentAmount <= 0) return;
+  const earned = await tx.loyaltyEntry.findUnique({
+    where: { idempotencyKey: "loyalty:order:earn:" + input.orderId },
+  });
+  if (!earned || earned.points <= 0) return;
+
+  const targetReversal = Math.floor(
+    (earned.points * input.cumulativeRefundedAmount) / input.paymentAmount,
+  );
+  const reversed = await tx.loyaltyEntry.aggregate({
+    where: { orderId: input.orderId, type: "ORDER_REFUND_REVERSAL" },
+    _sum: { points: true },
+  });
+  const alreadyReversed = Math.abs(Math.min(0, reversed._sum.points ?? 0));
+  const delta = Math.max(0, targetReversal - alreadyReversed);
+  if (delta === 0) return;
+
+  await recordLedgerEntry(tx, {
+    userId: input.userId,
+    type: "ORDER_REFUND_REVERSAL",
+    points: -delta,
+    orderId: input.orderId,
+    description: "Points adjusted for partial refund",
+    idempotencyKey: "loyalty:order:partial-refund:" + input.refundIntentId,
+    metadata: {
+      refundIntentId: input.refundIntentId,
+      cumulativeRefundedAmount: input.cumulativeRefundedAmount,
+      paymentAmount: input.paymentAmount,
+    },
+    earnedDelta: -delta,
   });
 }
 

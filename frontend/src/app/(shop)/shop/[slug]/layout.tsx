@@ -7,7 +7,7 @@ import {
   productJsonLd,
   socialImageUrl,
 } from "@/lib/seo";
-import { absoluteSiteUrl, SITE_NAME } from "@/lib/site";
+import { SITE_NAME } from "@/lib/site";
 
 type ProductRouteProps = {
   params: Promise<{ slug: string }>;

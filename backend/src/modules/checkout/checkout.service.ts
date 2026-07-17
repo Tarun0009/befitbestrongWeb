@@ -1,5 +1,5 @@
-import { createHash, randomBytes } from "node:crypto";
-import type { PaymentMethod } from "@prisma/client";
+import { createHash } from "node:crypto";
+import type { Order, PaymentMethod } from "@prisma/client";
 import { prisma } from "../../config/db.js";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
@@ -23,8 +23,14 @@ import {
   requireServiceArea,
 } from "../serviceability/serviceability.service.js";
 import { createOrderAdminNotification } from "../notifications/adminNotification.service.js";
-import { sendOrderStatusEmail } from "../orders/orderEmail.service.js";
-import { sendAdminOrderNotificationEmail } from "../notifications/adminOrderEmail.service.js";
+import { queueOrderStatusEmail } from "../orders/orderEmail.service.js";
+import { queueAdminOrderNotificationEmail } from "../notifications/adminOrderEmail.service.js";
+import { checkoutRequestHash } from "./checkoutIdempotency.policy.js";
+import {
+  acquireCheckoutAttempt,
+  markCheckoutAttemptFailed,
+} from "./checkoutIdempotency.service.js";
+import { reservationExpiryDeadline } from "./checkoutExpiry.policy.js";
 
 /**
  * Checkout — the money path.
@@ -67,6 +73,7 @@ export interface CheckoutInput {
   cartOwner: CartOwner;
   address: CheckoutAddress;
   paymentMethod: PaymentMethod;
+  idempotencyKey: string;
 }
 
 export interface CheckoutResult {
@@ -80,13 +87,68 @@ export interface CheckoutResult {
     keyId: string;
   } | null;
   guestAccessToken: string | null;
+  reservationExpiresAt: string | null;
 }
+
+export interface CheckoutSessionOutcome {
+  result: CheckoutResult;
+  replayed: boolean;
+}
+
+type CheckoutOrder = Pick<
+  Order,
+  | "id"
+  | "userId"
+  | "contactEmail"
+  | "status"
+  | "paymentMethod"
+  | "total"
+  | "currency"
+  | "paymentFee"
+  | "providerOrderId"
+  | "reservationExpiresAt"
+>;
 
 const SHIPPING_FLAT = 0; // free shipping in demo; wire up per-country later
 const TAX_RATE = 0; // demo has GST-inclusive pricing already
 
 export async function createCheckoutSession(
   input: CheckoutInput,
+): Promise<CheckoutSessionOutcome> {
+  const claim = await acquireCheckoutAttempt({
+    owner: input.cartOwner,
+    idempotencyKey: input.idempotencyKey,
+    requestHash: checkoutRequestHash(input),
+  });
+
+  if (claim.completed) {
+    return {
+      result: await replayCheckoutSession(input, claim.attempt.orderId),
+      replayed: true,
+    };
+  }
+
+  try {
+    const result = claim.attempt.orderId
+      ? await resumeCheckoutSession(input, claim.attempt.id, claim.attempt.orderId)
+      : await createFreshCheckoutSession(input, claim.attempt.id);
+    return { result, replayed: false };
+  } catch (error) {
+    await markCheckoutAttemptFailed(claim.attempt.id, error).catch(
+      (markError) => {
+        logger.error(
+          { err: markError, checkoutAttemptId: claim.attempt.id },
+          "checkout attempt failure could not be persisted",
+        );
+      },
+    );
+    throw error;
+  }
+}
+
+async function createFreshCheckoutSession(
+  input: CheckoutInput,
+  checkoutAttemptId: string,
 ): Promise<CheckoutResult> {
   // Coverage is authoritative and checked before any stock is reserved.
   const serviceArea = await requireServiceArea(input.address.pincode);
@@ -132,12 +194,19 @@ export async function createCheckoutSession(
     amountBeforeFee,
   );
   const currency = cart.currency ?? "INR";
-  const guestAccessToken = input.userId
-    ? null
-    : randomBytes(32).toString("base64url");
+  // The browser-generated key is high-entropy and lets a guest recover the
+  // same access token after a lost response without storing that token in DB.
+  const guestAccessToken = input.userId ? null : input.idempotencyKey;
   const guestAccessTokenHash = guestAccessToken
     ? hashGuestToken(guestAccessToken)
     : null;
+  const reservationExpiresAt =
+    input.paymentMethod === "PREPAID"
+      ? reservationExpiryDeadline(
+          new Date(),
+          env.CHECKOUT_RESERVATION_MINUTES,
+        )
+      : null;
 
   // 2. Reserve stock + create the pending order in one transaction.
   const order = await prisma.$transaction(async (tx) => {
@@ -210,6 +279,7 @@ export async function createCheckoutSession(
         total,
         currency,
         addressSnapshot,
+        reservationExpiresAt,
         items: {
           create: [
             ...cart.items.map((line) => ({
@@ -285,46 +355,59 @@ export async function createCheckoutSession(
         currency,
         contactEmail: input.contactEmail,
       });
+      await queueOrderStatusEmail(tx, created.id, "CONFIRMED");
+      await queueAdminOrderNotificationEmail(
+        tx,
+        created.id,
+        "ORDER_COD_PLACED",
+      );
     }
+    await tx.checkoutAttempt.update({
+      where: { id: checkoutAttemptId },
+      data: {
+        orderId: created.id,
+        ...(input.paymentMethod === "COD"
+          ? { status: "COMPLETED" as const, completedAt: new Date() }
+          : {}),
+      },
+    });
     return created;
   });
 
   if (input.paymentMethod === "COD") {
-    await clearCart(input.cartOwner);
-    void sendOrderStatusEmail(order.id, "CONFIRMED").catch((err) => {
-      logger.error({ err, orderId: order.id }, "COD confirmation email failed");
-    });
-    void sendAdminOrderNotificationEmail(order.id, "ORDER_COD_PLACED").catch(
-      (err) => {
-        logger.error({ err, orderId: order.id }, "admin COD-order email failed");
-      },
-    );
-    return {
-      orderId: order.id,
-      amount: total,
-      currency,
-      paymentMethod: input.paymentMethod,
-      paymentFee,
-      razorpay: null,
-      guestAccessToken,
-    };
+    await clearCommittedCart(input.cartOwner, order.id);
+    return checkoutResult(order, guestAccessToken, null);
   }
 
+  return finalizePrepaidCheckout(
+    input,
+    checkoutAttemptId,
+    order,
+    guestAccessToken,
+  );
+}
+
+async function finalizePrepaidCheckout(
+  input: CheckoutInput,
+  checkoutAttemptId: string,
+  order: CheckoutOrder,
+  guestAccessToken: string | null,
+): Promise<CheckoutResult> {
   // 3. Create the Razorpay order — outside the tx, since it's an external call.
-  //    If this fails, stock is already reserved and the order is PENDING. The
-  //    checkout/cancel path (or the timeout job in a future phase) releases
-  //    it. For now we surface the error and let the client retry.
+  //    If this fails, the state machine marks the order FAILED and releases
+  //    stock. The attempt records the failure, so a new logical attempt must
+  //    use a new key instead of accidentally creating a duplicate order.
   let rzp: { id: string };
   if (isRazorpayConfigured()) {
     try {
       rzp = await createRazorpayOrder({
-        amount: total,
-        currency,
+        amount: order.total,
+        currency: order.currency,
         receipt: order.id,
         notes: {
           orderId: order.id,
-          buyer: input.userId ?? "guest",
-          contactEmail: input.contactEmail,
+          buyer: order.userId ?? "guest",
+          contactEmail: order.contactEmail,
         },
       });
     } catch (err) {
@@ -357,32 +440,145 @@ export async function createCheckoutSession(
       where: { id: order.id },
       data: { providerOrderId: rzp.id },
     }),
-    prisma.payment.create({
-      data: {
+    prisma.payment.upsert({
+      where: { orderId: order.id },
+      update: {
+        provider: isRazorpayConfigured() ? "razorpay" : "dev",
+        providerOrderId: rzp.id,
+      },
+      create: {
         orderId: order.id,
         provider: isRazorpayConfigured() ? "razorpay" : "dev",
         providerOrderId: rzp.id,
-        amount: total,
-        currency,
+        amount: order.total,
+        currency: order.currency,
         status: "CREATED",
       },
     }),
+    prisma.checkoutAttempt.update({
+      where: { id: checkoutAttemptId },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    }),
   ]);
 
-  await clearCart(input.cartOwner);
+  await clearCommittedCart(input.cartOwner, order.id);
 
+  return checkoutResult(order, guestAccessToken, rzp.id);
+}
+
+async function replayCheckoutSession(
+  input: CheckoutInput,
+  orderId: string | null,
+): Promise<CheckoutResult> {
+  if (!orderId) {
+    throw new HttpError(
+      500,
+      "checkout_state_invalid",
+      "Completed checkout has no order",
+    );
+  }
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order) {
+    throw new HttpError(
+      500,
+      "checkout_state_invalid",
+      "Checkout order is missing",
+    );
+  }
+  if (order.paymentMethod === "PREPAID" && order.reservationExpiredAt) {
+    throw new HttpError(
+      409,
+      "checkout_expired",
+      "This payment session expired. Start a new checkout to continue.",
+    );
+  }
+  if (order.paymentMethod === "PREPAID" && !order.providerOrderId) {
+    throw new HttpError(
+      500,
+      "checkout_state_invalid",
+      "Checkout payment session is missing",
+    );
+  }
+  return checkoutResult(
+    order,
+    input.userId ? null : input.idempotencyKey,
+    order.providerOrderId,
+  );
+}
+
+async function resumeCheckoutSession(
+  input: CheckoutInput,
+  checkoutAttemptId: string,
+  orderId: string,
+): Promise<CheckoutResult> {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: { payment: { select: { id: true } } },
+  });
+  if (!order) {
+    throw new HttpError(
+      500,
+      "checkout_state_invalid",
+      "Checkout order is missing",
+    );
+  }
+
+  const guestAccessToken = input.userId ? null : input.idempotencyKey;
+  if (order.paymentMethod === "COD") {
+    await prisma.checkoutAttempt.update({
+      where: { id: checkoutAttemptId },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    });
+    return checkoutResult(order, guestAccessToken, null);
+  }
+  if (order.providerOrderId && order.payment) {
+    await prisma.checkoutAttempt.update({
+      where: { id: checkoutAttemptId },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    });
+    return checkoutResult(order, guestAccessToken, order.providerOrderId);
+  }
+  if (order.status !== "PENDING") {
+    throw new HttpError(
+      409,
+      "checkout_not_resumable",
+      "This checkout attempt can no longer be resumed",
+    );
+  }
+  return finalizePrepaidCheckout(
+    input,
+    checkoutAttemptId,
+    order,
+    guestAccessToken,
+  );
+}
+
+function checkoutResult(
+  order: CheckoutOrder,
+  guestAccessToken: string | null,
+  providerOrderId: string | null,
+): CheckoutResult {
   return {
     orderId: order.id,
-    amount: total,
-    currency,
-    paymentMethod: input.paymentMethod,
-    paymentFee,
-    razorpay: {
-      orderId: rzp.id,
-      keyId: env.RAZORPAY_KEY_ID ?? "",
-    },
+    amount: order.total,
+    currency: order.currency,
+    paymentMethod: order.paymentMethod,
+    paymentFee: order.paymentFee,
+    razorpay:
+      order.paymentMethod === "PREPAID" && providerOrderId
+        ? { orderId: providerOrderId, keyId: env.RAZORPAY_KEY_ID ?? "" }
+        : null,
     guestAccessToken,
+    reservationExpiresAt: order.reservationExpiresAt?.toISOString() ?? null,
   };
+}
+
+async function clearCommittedCart(owner: CartOwner, orderId: string) {
+  try {
+    await clearCart(owner);
+  } catch (error) {
+    logger.error({ err: error, orderId }, "committed checkout cart clear failed");
+  }
 }
 
 /**

@@ -1,7 +1,6 @@
 import type { OrderStatus } from "@prisma/client";
-import { env } from "../../config/env.js";
-import { prisma } from "../../config/db.js";
-import { logger } from "../../config/logger.js";
+import type { EmailOutboxTx } from "../notifications/emailOutbox.service.js";
+import { enqueueEmail } from "../notifications/emailOutbox.service.js";
 
 const SUBJECTS: Partial<Record<OrderStatus, string>> = {
   CONFIRMED: "Your beFitBeStrong COD order is confirmed",
@@ -29,26 +28,18 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#039;");
 }
 
-export async function sendOrderStatusEmail(
+export async function queueOrderStatusEmail(
+  tx: EmailOutboxTx,
   orderId: string,
   status: OrderStatus,
-): Promise<void> {
+) {
   const subject = SUBJECTS[status];
-  if (!subject) return;
-
-  if (!env.RESEND_API_KEY || !env.EMAIL_FROM) {
-    logger.debug(
-      { orderId, status },
-      "transactional email skipped: Resend is not configured",
-    );
-    return;
-  }
-
-  const order = await prisma.order.findUnique({
+  if (!subject) return null;
+  const order = await tx.order.findUnique({
     where: { id: orderId },
     include: { items: true },
   });
-  if (!order) return;
+  if (!order) return null;
 
   const itemRows = order.items
     .map((item) => {
@@ -57,9 +48,7 @@ export async function sendOrderStatusEmail(
         size?: string | null;
         color?: string | null;
       };
-      const variant = [snapshot.size, snapshot.color]
-        .filter(Boolean)
-        .join(" / ");
+      const variant = [snapshot.size, snapshot.color].filter(Boolean).join(" / ");
       return (
         "<tr><td style='padding:8px 0'>" +
         escapeHtml(snapshot.name ?? "Product") +
@@ -72,7 +61,6 @@ export async function sendOrderStatusEmail(
       );
     })
     .join("");
-
   const html =
     "<div style='font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#1f1b14'>" +
     "<div style='background:#f5b800;padding:18px 24px;font-weight:700'>beFitBeStrong</div>" +
@@ -90,26 +78,13 @@ export async function sendOrderStatusEmail(
     "</strong></p><p style='color:#6f675d;font-size:13px'>Keep this email and order number for your records.</p>" +
     "</div></div>";
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: "Bearer " + env.RESEND_API_KEY,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: env.EMAIL_FROM,
-      to: [order.contactEmail],
-      subject,
-      html,
-    }),
+  return enqueueEmail(tx, {
+    idempotencyKey: `order-status/${order.id}/${status}`,
+    template: "ORDER_STATUS",
+    recipientEmail: order.contactEmail,
+    subject,
+    html,
+    referenceType: "Order",
+    referenceId: order.id,
   });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-      "Resend email failed with " + response.status + ": " + body.slice(0, 300),
-    );
-  }
-
-  logger.info({ orderId, status, to: order.contactEmail }, "order email sent");
 }

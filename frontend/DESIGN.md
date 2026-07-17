@@ -26,6 +26,7 @@ Semantic-only. Never hardcode hex.
 --foreground        (default text)             /* deep warm charcoal */
 --primary           (main button / anchor)     /* vivid brand yellow */
 --primary-foreground(text on primary)          /* deep warm charcoal — reads on yellow */
+--primary-emphasis  (brand text on surfaces)   /* darker gold with WCAG text contrast */
 --muted             (subtle surfaces)          /* pale warm gray-cream */
 --muted-foreground  (secondary text)
 --border            (1px separators, outlines) /* warm-tinted light gray */

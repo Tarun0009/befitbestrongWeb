@@ -15,6 +15,7 @@ an ignored `deploy/.env.production` file.
 | Firebase | optional, but each SDK group is all-or-none | both client and Admin groups required | both groups required |
 | Razorpay | optional | complete group; test key allowed | complete group; `rzp_live_` key required |
 | Email | optional unless explicitly required | same | same |
+| Courier | manual fallback | manual or complete Shiprocket group | manual or complete Shiprocket group |
 | Log level | debug allowed | `info` or stricter | `info` or stricter |
 
 Backend validation runs before the server opens its port. Frontend validation runs
@@ -50,11 +51,42 @@ https://api.example.com/webhooks/razorpay
 Use a separate webhook secret. Do not reuse the API key secret. The endpoint must
 receive the raw request body; the application already mounts it before JSON parsing.
 
+Keep outbound Razorpay calls bounded. The production template defaults each
+attempt to 5 seconds, permits at most 3 attempts, and starts exponential jitter
+at 250 ms:
+
+```text
+RAZORPAY_HTTP_TIMEOUT_MS=5000
+RAZORPAY_HTTP_MAX_ATTEMPTS=3
+RAZORPAY_HTTP_RETRY_BASE_MS=250
+```
+
+Do not raise these values without checking the reverse-proxy/client request
+deadline and total worst-case budget. Retry safety and recovery behavior are in
+[`PROVIDER_HTTP_RELIABILITY.md`](./PROVIDER_HTTP_RELIABILITY.md).
+
 If email delivery is a launch requirement, set both `RESEND_API_KEY` and
 `EMAIL_FROM`, then set `EMAIL_DELIVERY_REQUIRED=true`. Set
 `ADMIN_NOTIFICATION_EMAIL` to the operations inbox that should receive secondary
-new-order alerts. Otherwise leave the email values empty and the readiness check
-will report email as optional/unavailable; persistent dashboard alerts still work.
+new-order alerts. Tune `EMAIL_HTTP_TIMEOUT_MS`, `EMAIL_OUTBOX_SCAN_SECONDS`,
+`EMAIL_OUTBOX_BATCH_SIZE`, and `EMAIL_OUTBOX_MAX_ATTEMPTS` only with an explicit
+queue-age and provider-rate budget. Otherwise leave the provider values empty: the
+readiness check reports email as optional/unavailable, messages remain durably
+`PENDING`, and persistent dashboard alerts still work. Operators can inspect and
+retry delivery at `/admin/email-delivery`; see
+[`EMAIL_OUTBOX.md`](./EMAIL_OUTBOX.md).
+
+Automated courier booking is opt-in. Keep `COURIER_PROVIDER=manual` until a
+dedicated Shiprocket API user, exact pickup-location name, pickup PIN, and webhook
+token are ready. Then set the complete Shiprocket variable group and configure:
+
+```text
+https://api.example.com/webhooks/fulfillment
+```
+
+Use the configured webhook token as Shiprocket's `x-api-key`. The generic path is
+intentional because Shiprocket rejects callback URLs containing its brand
+abbreviations. Manual fulfillment remains available if the integration is disabled.
 
 ## Validate before deployment
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import Script from "next/script";
 import { useRouter } from "next/navigation";
@@ -50,6 +50,12 @@ function storeGuestOrderToken(orderId: string, token: string | null) {
   }
 }
 
+function randomCheckoutKey(): string {
+  const bytes = new Uint8Array(32);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export default function CheckoutPage() {
   const router = useRouter();
   const user = useAppSelector((state) => state.auth.user);
@@ -71,6 +77,9 @@ export default function CheckoutPage() {
   const [paymentMethod, setPaymentMethod] =
     useState<PaymentMethod>("PREPAID");
   const [step, setStep] = useState<"details" | "review">("details");
+  const checkoutAttempt = useRef<{ fingerprint: string; key: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -120,12 +129,23 @@ export default function CheckoutPage() {
 
   async function handlePay() {
     setError(null);
+    const checkoutBody = {
+      address,
+      email: user?.email ?? email.trim(),
+      couponCode: coupon?.code,
+      paymentMethod,
+    };
+    const fingerprint = JSON.stringify(checkoutBody);
+    if (
+      !checkoutAttempt.current ||
+      checkoutAttempt.current.fingerprint !== fingerprint
+    ) {
+      checkoutAttempt.current = { fingerprint, key: randomCheckoutKey() };
+    }
     try {
       const session = await createSession({
-        address,
-        email: user?.email ?? email.trim(),
-        couponCode: coupon?.code,
-        paymentMethod,
+        ...checkoutBody,
+        idempotencyKey: checkoutAttempt.current.key,
       }).unwrap();
 
       storeGuestOrderToken(session.orderId, session.guestAccessToken);
@@ -176,7 +196,15 @@ export default function CheckoutPage() {
         );
       }
     } catch (caught) {
-      const apiError = caught as { data?: { error?: { message?: string } } };
+      const apiError = caught as {
+        status?: number | string;
+        data?: { error?: { code?: string; message?: string } };
+      };
+      const retrySameAttempt =
+        apiError.status === "FETCH_ERROR" ||
+        apiError.status === "TIMEOUT_ERROR" ||
+        apiError.data?.error?.code === "checkout_in_progress";
+      if (!retrySameAttempt) checkoutAttempt.current = null;
       setError(
         apiError.data?.error?.message ?? "Could not start checkout.",
       );

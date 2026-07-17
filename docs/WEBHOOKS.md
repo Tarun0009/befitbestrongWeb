@@ -36,11 +36,14 @@ Adjacent problem: **stock oversell**. If two shoppers race for the last unit, ex
 `WebhookEvent` table with `@@unique([provider, eventId])`. On webhook receipt:
 
 1. Verify signature (constant-time compare).
-2. `INSERT INTO WebhookEvent (...)`.
-3. If P2002 (unique violation) → we've seen this event. Log, `200 OK`, done.
+2. `INSERT INTO WebhookEvent (...) ON CONFLICT DO NOTHING`.
+3. Reload the durable row. When the insert conflicted, ACK it if already processed;
+   otherwise re-enqueue it to recover a prior DB/Redis handoff failure.
 4. Otherwise → enqueue a BullMQ job carrying the row id and `200 OK`.
 
-The **worker** does the actual state transition. It also re-checks `WebhookEvent.processedAt` before doing anything, so even if BullMQ redelivers the job (crash mid-work), we don't double-apply.
+The **worker** validates provider order id, payment id, amount, currency, provider
+state, and legal local state before the actual transition. It also re-checks
+`WebhookEvent.processedAt`, so BullMQ redelivery cannot double-apply.
 
 Two layers of dedupe:
 - Layer 1: Postgres unique index — catches "same event, second delivery from Razorpay."
@@ -86,7 +89,13 @@ If a concurrent order took the last piece, this UPDATE returns 0 rows changed. P
 ## Full checkout flow
 
 ```
-POST /checkout/session (user auth required)
+POST /checkout/session (auth or guest cart + Idempotency-Key)
+        │
+        ▼
+    INSERT CheckoutAttempt
+    - UNIQUE(ownerHash, keyHash)
+    - same request replays the original order
+    - different request with same key is rejected
         │
         ▼
     ┌──────────────┐    "UPDATE ... WHERE stock >= qty"
@@ -112,8 +121,8 @@ POST /checkout/session (user auth required)
 POST /webhooks/razorpay (raw body, HMAC-SHA256 verified)
         │
         ▼
-    INSERT INTO WebhookEvent(provider="razorpay", eventId, ...)
-        │ (P2002 → return 200, deduped)
+    INSERT ... ON CONFLICT DO NOTHING into WebhookEvent
+        │ (conflict → ACK processed row or re-enqueue unprocessed row)
         ▼
     paymentEventsQueue.add({ webhookEventId })
         ▼
@@ -124,13 +133,15 @@ POST /webhooks/razorpay (raw body, HMAC-SHA256 verified)
     findUnique(WebhookEvent) → skip if processedAt set
         │
         ▼
-    handleEvent()
+    parse + validate event
+        - type/payload/state mismatch → REJECTED, no commercial write
+        - amount/currency/id/local-state drift → RECONCILIATION_REQUIRED
+        - unsupported event → IGNORED
         - "payment.captured" → Order PENDING → PAID + Payment CAPTURED
         - "payment.failed"   → Order PENDING → FAILED + RELEASE stock
-        - anything else       → ignored (Phase 7 wires the rest)
         │
         ▼
-    UPDATE WebhookEvent SET processedAt = now()
+    UPDATE WebhookEvent SET outcome/code/identifiers, processedAt = now()
 ```
 
 ## Snapshotting: why `productSnapshot` and `addressSnapshot`
@@ -150,10 +161,27 @@ To keep the demo working before Razorpay keys are wired up, `POST /checkout/dev-
 
 ## What's not here yet
 
-- **Timeout sweep for PENDING orders.** If the user never returns after starting checkout, stock stays reserved forever. Phase 7 or a cron job should release orders older than N minutes.
-- **Refund path.** `POST /admin/orders/:id/refund` calls Razorpay's refund API — Phase 7.
+- **Refund path.** `POST /admin/orders/:id/refunds` creates a durable intent;
+  signed refund events and bounded polling converge through one ledger service.
+  See [`REFUND_LEDGER.md`](./REFUND_LEDGER.md).
 - **Retry-on-failure UX.** The failure page offers Cancel; a proper retry that reopens the same Razorpay modal against the same order would be nicer.
-- **Webhook replay for missed events.** If our worker was down when Razorpay retried and eventually gave up, we'd never see the event. Fix: a periodic reconciliation job that pulls Razorpay's payments API and compares to our Order state.
+- **Provider polling reconciliation.** Durable received events survive worker/Redis
+  downtime, but events never delivered by the provider and checkout/provider-link
+  drift still require a periodic API comparison against local Order state.
+
+Checkout request idempotency is now documented separately in
+[`CHECKOUT_IDEMPOTENCY.md`](./CHECKOUT_IDEMPOTENCY.md). Its database-backed
+concurrency smoke proves duplicate client requests create one local order and
+reserve stock once. Provider-call crash reconciliation remains a separate
+production boundary.
+
+Abandoned PENDING reservations are handled by the bounded repeatable worker in
+[`CHECKOUT_RESERVATION_EXPIRY.md`](./CHECKOUT_RESERVATION_EXPIRY.md). It restores
+stock, normal coupon usage, loyalty value, and payment state in the same
+optimistic order-transition transaction.
+
+Strict provider-event validation and auditable mismatch quarantine are documented
+in [`PAYMENT_EVENT_VALIDATION.md`](./PAYMENT_EVENT_VALIDATION.md).
 
 ## Resume-ready phrases
 

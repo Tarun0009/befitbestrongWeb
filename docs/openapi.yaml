@@ -53,6 +53,75 @@ components:
     PaymentMethod:
       type: string
       enum: [PREPAID, COD]
+    EmailOutboxStatus:
+      type: string
+      enum: [PENDING, PROCESSING, SENT, DEAD_LETTER, CANCELLED]
+    EmailTemplate:
+      type: string
+      enum: [ORDER_STATUS, ADMIN_ORDER_ALERT, SUBSCRIPTION_RENEWAL, BACK_IN_STOCK]
+    CheckoutSession:
+      type: object
+      required: [orderId, amount, currency, paymentMethod, paymentFee, razorpay, guestAccessToken, reservationExpiresAt]
+      properties:
+        orderId: { type: string }
+        amount: { type: integer }
+        currency: { type: string }
+        paymentMethod:
+          $ref: "#/components/schemas/PaymentMethod"
+        paymentFee: { type: integer }
+        razorpay:
+          type: object
+          nullable: true
+          properties:
+            orderId: { type: string }
+            keyId: { type: string }
+        guestAccessToken: { type: string, nullable: true }
+        reservationExpiresAt: { type: string, format: date-time, nullable: true }
+    ShipmentStatus:
+      type: string
+      enum:
+        - LABEL_CREATED
+        - PICKED_UP
+        - IN_TRANSIT
+        - OUT_FOR_DELIVERY
+        - DELIVERED
+        - DELIVERY_FAILED
+        - RTO_IN_TRANSIT
+        - RETURNED
+        - CANCELLED
+    ManualShipmentRequest:
+      type: object
+      required: [carrier, trackingNumber]
+      properties:
+        carrier: { type: string, minLength: 2, maxLength: 80 }
+        service: { type: string, maxLength: 80 }
+        trackingNumber: { type: string, minLength: 3, maxLength: 100 }
+        trackingUrl:
+          type: string
+          format: uri
+          description: HTTP or HTTPS carrier tracking link.
+        estimatedDeliveryAt: { type: string, format: date-time }
+        note: { type: string, maxLength: 500 }
+    CourierBookingRequest:
+      type: object
+      required: [weightKg, lengthCm, breadthCm, heightCm]
+      properties:
+        weightKg: { type: number, minimum: 0.05, maximum: 100 }
+        lengthCm: { type: number, minimum: 1, maximum: 300 }
+        breadthCm: { type: number, minimum: 1, maximum: 300 }
+        heightCm: { type: number, minimum: 1, maximum: 300 }
+        courierId: { type: string, pattern: "^\\d+$" }
+        pickupDate: { type: string, format: date }
+    CourierRate:
+      type: object
+      properties:
+        courierId: { type: string }
+        courierName: { type: string }
+        rate: { type: integer, description: Paise }
+        codCharges: { type: integer, description: Paise }
+        estimatedDays: { type: number }
+        etd: { type: string }
+        rating: { type: number }
     Category:
       type: object
       properties:
@@ -210,7 +279,9 @@ paths:
   /auth/me:
     get:
       tags: [Auth]
-      security: [{ firebaseBearer: [] }]
+      security:
+        - firebaseBearer: []
+        - cartSessionCookie: []
       responses:
         "200": { description: Current user }
         "401": { description: Missing / invalid / revoked token }
@@ -426,6 +497,12 @@ paths:
       tags: [Checkout]
       security: [{ firebaseBearer: [] }]
       summary: Validate coverage, reserve stock, and create a prepaid or COD order
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          description: A URL-safe 32-128 character key reused only for retries of this exact checkout request.
+          schema: { type: string, minLength: 32, maxLength: 128 }
       requestBody:
         required: true
         content:
@@ -451,26 +528,22 @@ paths:
                     pincode: { type: string }
                     country: { type: string, default: IN }
       responses:
+        "200":
+          description: Previously completed checkout replayed for the same key and request
+          headers:
+            Idempotency-Replayed:
+              schema: { type: string, enum: ["true"] }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSession"
         "201":
           description: Checkout session created
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  orderId: { type: string }
-                  amount: { type: integer }
-                  currency: { type: string }
-                  paymentMethod:
-                    $ref: "#/components/schemas/PaymentMethod"
-                  paymentFee: { type: integer }
-                  razorpay:
-                    type: object
-                    nullable: true
-                    properties:
-                      orderId: { type: string }
-                      keyId: { type: string }
-        "409": { description: Insufficient stock }
+                $ref: "#/components/schemas/CheckoutSession"
+        "409": { description: Insufficient stock, key reuse conflict, or checkout still processing }
         "422": { description: Unsupported PIN or unavailable payment method }
         "503": { description: Razorpay not configured }
   /checkout/cancel:
@@ -524,9 +597,10 @@ paths:
       summary: Razorpay-delivered payment event
       description: |
         Raw JSON body is HMAC-SHA256 verified against `RAZORPAY_WEBHOOK_SECRET`.
-        Idempotent — a duplicate event id returns 200 { deduped: true } via the
-        `WebhookEvent @@unique(provider, eventId)` guard. Successful events
-        enqueue a BullMQ job; the worker owns state transitions.
+        Idempotent via `WebhookEvent @@unique(provider, eventId)`. A processed
+        duplicate returns 200. An unprocessed duplicate is safely re-enqueued.
+        The worker validates provider order id, payment id, amount, currency,
+        provider state, and legal local state before any commercial transition.
       parameters:
         - name: X-Razorpay-Signature
           in: header
@@ -541,6 +615,34 @@ paths:
           description: Accepted (may include `deduped: true`)
         "400":
           description: Bad signature or malformed body
+        "503":
+          description: Durable event stored but queue unavailable; provider should retry
+
+  /webhooks/fulfillment:
+    post:
+      tags: [Webhooks]
+      summary: Shiprocket shipment status event
+      description: |
+        Authenticates the provider callback with the configured `x-api-key`,
+        stores the raw event idempotently, and queues shipment/order state
+        normalization for retryable background processing.
+      parameters:
+        - name: x-api-key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "200":
+          description: Accepted (may include `deduped: true`)
+        "400":
+          description: Malformed or unsupported event
+        "401":
+          description: Missing or invalid webhook token
 
   # ---------------- Admin ----------------
   /admin/products:
@@ -694,6 +796,30 @@ paths:
       security: [{ firebaseBearer: [] }]
       responses:
         "200": { description: Up to 500 current unread notifications marked read }
+  /admin/email-outbox:
+    get:
+      tags: [Admin]
+      summary: List durable transactional email delivery records
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/EmailOutboxStatus" } }
+        - { name: template, in: query, schema: { $ref: "#/components/schemas/EmailTemplate" } }
+      responses:
+        "200":
+          description: Safe delivery metadata, latest audit events, queue totals, and provider capability; frozen HTML and idempotency keys are omitted
+  /admin/email-outbox/{id}/retry:
+    post:
+      tags: [Admin]
+      summary: Requeue a pending or dead-letter transactional email
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "202": { description: Message accepted for retry with the original frozen content and provider idempotency key }
+        "404": { description: Delivery record not found }
+        "409": { description: Sent, cancelled, or currently processing messages cannot be retried }
 
   /admin/orders:
     get:
@@ -714,6 +840,78 @@ paths:
       responses:
         "200":
           description: Order + allowedTransitions[]
+  /admin/orders/{id}/shipments:
+    post:
+      tags: [Admin]
+      summary: Create a shipment and atomically dispatch an order
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ManualShipmentRequest" }
+      responses:
+        "201": { description: Shipment created and order is SHIPPED }
+        "409":
+          description: Order is not dispatchable or carrier/tracking number already exists
+  /admin/orders/{id}/courier-rates:
+    post:
+      tags: [Admin]
+      summary: Compare serviceable courier rates for an order and parcel
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CourierBookingRequest" }
+      responses:
+        "200":
+          description: Eligible couriers ordered by price
+  /admin/orders/{id}/courier-booking:
+    post:
+      tags: [Admin]
+      summary: Create or resume provider order, AWB, label, and pickup
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CourierBookingRequest" }
+      responses:
+        "201": { description: Booking is ready with a local shipment }
+        "409": { description: Order is not eligible for booking }
+        "502": { description: Courier provider request failed safely and may be retried }
+  /admin/fulfillment/shipments:
+    get:
+      tags: [Admin]
+      summary: Paginated fulfillment operations queue
+      security: [{ firebaseBearer: [] }]
+      responses:
+        "200": { description: Shipments, order summary, latest event, and sync state }
+  /admin/shipments/{id}/reconcile:
+    post:
+      tags: [Admin]
+      summary: Reconcile one shipment with its provider
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Reconciliation result }
+  /admin/shipments/{id}/cancel:
+    post:
+      tags: [Admin]
+      summary: Cancel an eligible courier AWB without changing the order
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Courier shipment cancelled }
   /admin/orders/{id}/ship:
     post:
       tags: [Admin]
@@ -739,14 +937,37 @@ paths:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
         "200": { description: PENDING or CONFIRMED → CANCELLED (releases stock) }
-  /admin/orders/{id}/refund:
+  /admin/orders/{id}/refunds:
     post:
       tags: [Admin]
+      summary: Create or safely replay a full/partial refund intent
+      security: [{ firebaseBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 16, maxLength: 128 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [amount, reason]
+              properties:
+                amount: { type: integer, minimum: 1, description: Currency subunits }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        "202": { description: Refund ledger and current processed/pending/available summary }
+        "409": { description: Not refundable, partial refund before delivery, over-refund, or key reuse mismatch }
+  /admin/refunds/{id}/reconcile:
+    post:
+      tags: [Admin]
+      summary: Reconcile one non-terminal refund intent with its provider
       security: [{ firebaseBearer: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: PAID or DELIVERED → REFUNDED; gateway call is skipped for COD }
+        "200": { description: Refreshed refund ledger and balance summary }
   /admin/analytics/summary:
     get:
       tags: [Admin]

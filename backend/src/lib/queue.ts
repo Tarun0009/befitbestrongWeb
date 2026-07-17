@@ -47,3 +47,83 @@ export const subscriptionRenewalsQueue = new Queue("subscription-renewals", {
 subscriptionRenewalsQueue.on("error", (err) =>
   logger.error({ err }, "subscription-renewals queue error"),
 );
+
+export interface CourierEventJobData {
+  webhookEventId: string;
+}
+
+export const courierEventsQueue = new Queue<CourierEventJobData>(
+  "courier-events",
+  {
+    connection,
+    defaultJobOptions: {
+      attempts: 8,
+      backoff: { type: "exponential", delay: 2000 },
+      removeOnComplete: { count: 500 },
+      removeOnFail: { count: 200 },
+    },
+  },
+);
+
+courierEventsQueue.on("error", (err) =>
+  logger.error({ err }, "courier-events queue error"),
+);
+
+export const courierReconciliationQueue = new Queue(
+  "courier-reconciliation",
+  {
+    connection,
+    defaultJobOptions: {
+      attempts: 3,
+      backoff: { type: "exponential", delay: 5000 },
+      removeOnComplete: { count: 100 },
+      removeOnFail: { count: 100 },
+    },
+  },
+);
+
+courierReconciliationQueue.on("error", (err) =>
+  logger.error({ err }, "courier-reconciliation queue error"),
+);
+
+export const checkoutExpiryQueue = new Queue("checkout-expiry", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 5000 },
+    removeOnComplete: { count: 100 },
+    removeOnFail: { count: 100 },
+  },
+});
+
+checkoutExpiryQueue.on("error", (err) =>
+  logger.error({ err }, "checkout-expiry queue error"),
+);
+
+export const refundReconciliationQueue = new Queue("refund-reconciliation", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 5000 },
+    removeOnComplete: { count: 100 },
+    removeOnFail: { count: 100 },
+  },
+});
+
+refundReconciliationQueue.on("error", (err) =>
+  logger.error({ err }, "refund-reconciliation queue error"),
+);
+
+export const emailOutboxQueue = new Queue("email-outbox", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 5000 },
+    removeOnComplete: { count: 100 },
+    removeOnFail: { count: 100 },
+  },
+});
+
+emailOutboxQueue.on("error", (err) =>
+  logger.error({ err }, "email-outbox queue error"),
+);

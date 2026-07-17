@@ -31,6 +31,29 @@ jobs:
       REDIS_URL: redis://localhost:6379
       CORS_ORIGIN: http://localhost:3005
       FRONTEND_URL: http://localhost:3005
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -53,6 +76,9 @@ jobs:
       - name: Generate Prisma client
         run: pnpm prisma:generate
 
+      - name: Apply test database migrations
+        run: pnpm migrate:deploy
+
       - name: Validate runtime configuration
         run: pnpm config:check
 
@@ -62,8 +88,116 @@ jobs:
       - name: Run tests
         run: pnpm test --runInBand --ci
 
+      - name: Verify checkout idempotency against PostgreSQL and Redis
+        run: pnpm smoke:checkout-idempotency
+
+      - name: Verify abandoned checkout expiry against PostgreSQL and Redis
+        run: pnpm smoke:checkout-expiry
+
+      - name: Verify payment-event validation against PostgreSQL
+        run: pnpm smoke:payment-events
+
+      - name: Verify refund ledger recovery against PostgreSQL
+        run: pnpm smoke:refund-ledger
+
+      - name: Verify durable email recovery against PostgreSQL
+        run: pnpm smoke:email-outbox
+
       - name: Build
         run: pnpm build
+
+  e2e:
+    name: Browser and accessibility quality gate
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: true
+      APP_ENV: local
+      LOG_LEVEL: error
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/e2e
+      REDIS_URL: redis://localhost:6379
+      CORS_ORIGIN: http://localhost:3005
+      FRONTEND_URL: http://localhost:3005
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_PUBLIC_SITE_URL: http://localhost:3005
+      NEXT_DISABLE_STANDALONE: "1"
+      E2E_BACKEND_URL: http://localhost:4000
+      E2E_FRONTEND_URL: http://localhost:3005
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@008330803749db0355799c700092d9a85fd074e9 # v6.0.9
+        with:
+          version: 10.34.5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: |
+            backend/pnpm-lock.yaml
+            frontend/pnpm-lock.yaml
+
+      - name: Install backend dependencies
+        run: pnpm --dir backend install --frozen-lockfile
+
+      - name: Install frontend dependencies
+        run: pnpm --dir frontend install --frozen-lockfile
+
+      - name: Prepare isolated application database
+        run: |
+          pnpm --dir backend run prisma:generate
+          pnpm --dir backend run migrate:deploy
+          pnpm --dir backend run prisma:seed
+
+      - name: Build compiled services
+        run: |
+          pnpm --dir backend run build
+          pnpm --dir frontend run build
+
+      - name: Install Chromium runtime
+        run: pnpm --dir frontend exec playwright install --with-deps chromium
+
+      - name: Run browser and accessibility tests
+        run: pnpm --dir frontend run test:e2e
+
+      - name: Upload Playwright failure evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: error
+          retention-days: 14
 
   frontend:
     name: Frontend quality
@@ -73,7 +207,7 @@ jobs:
       run:
         working-directory: frontend
     env:
-      NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
+      NEXT_PUBLIC_API_URL: http://localhost:4000
       NEXT_PUBLIC_SITE_URL: http://localhost:3005
       NEXT_DISABLE_STANDALONE: "1"
     steps:
@@ -97,6 +231,12 @@ jobs:
 
       - name: Type-check
         run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Check feature boundaries
+        run: pnpm architecture:check
 
       - name: Build
         run: pnpm build

@@ -10,6 +10,7 @@ import {
   Gift,
   LayoutDashboard,
   MapPinned,
+  MailCheck,
   Menu,
   Package,
   PanelsTopLeft,
@@ -18,6 +19,7 @@ import {
   Star,
   Tags,
   TicketPercent,
+  Truck,
   UserRound,
   X,
   type LucideIcon,
@@ -49,6 +51,12 @@ const navGroups: NavGroup[] = [
         description: "Monitor sales, fulfilment, and inventory health.",
         icon: LayoutDashboard,
       },
+      {
+        href: "/admin/email-delivery",
+        label: "Email delivery",
+        description: "Monitor queued messages, retries, and delivery failures.",
+        icon: MailCheck,
+      },
     ],
   },
   {
@@ -71,6 +79,12 @@ const navGroups: NavGroup[] = [
         label: "Orders",
         description: "Review purchases, payment state, and fulfilment.",
         icon: ShoppingBag,
+      },
+      {
+        href: "/admin/fulfillment",
+        label: "Fulfillment",
+        description: "Operate AWBs, pickups, shipment tracking, and exceptions.",
+        icon: Truck,
       },
       {
         href: "/admin/service-areas",

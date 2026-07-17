@@ -3,8 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../config/db.js";
 import { HttpError } from "../../middleware/errorHandler.js";
 import { invalidateCatalog } from "../products/products.service.js";
-import { logger } from "../../config/logger.js";
-import { sendBackInStockNotifications } from "../wishlist/stockAlertEmail.service.js";
+import { queueBackInStockNotifications } from "../wishlist/stockAlertEmail.service.js";
 import { requireAtLeastOneField } from "../../lib/validation.js";
 
 const router = Router();
@@ -313,34 +312,29 @@ router.patch("/variants/:variantId", async (req, res, next) => {
   try {
     const variantId = z.string().cuid().parse(req.params.variantId);
     const body = variantPatchBody.parse(req.body);
-    const current = await prisma.productVariant.findUnique({
-      where: { id: variantId },
-      select: { stock: true },
-    });
-    if (!current) {
-      throw new HttpError(404, "variant_not_found", "Variant not found");
-    }
-
-    const variant = await prisma.productVariant.update({
-      where: { id: variantId },
-      data: body,
-    });
-    await invalidateCatalog(variant.productId);
-
-    if (body.stock !== undefined) {
-      try {
-        await sendBackInStockNotifications(
-          variant.id,
+    const variant = await prisma.$transaction(async (tx) => {
+      const current = await tx.productVariant.findUnique({
+        where: { id: variantId },
+        select: { stock: true },
+      });
+      if (!current) {
+        throw new HttpError(404, "variant_not_found", "Variant not found");
+      }
+      const updated = await tx.productVariant.update({
+        where: { id: variantId },
+        data: body,
+      });
+      if (body.stock !== undefined) {
+        await queueBackInStockNotifications(
+          tx,
+          updated.id,
           current.stock,
-          variant.stock,
-        );
-      } catch (error) {
-        logger.error(
-          { error, variantId: variant.id },
-          "back-in-stock notification run failed after inventory update",
+          updated.stock,
         );
       }
-    }
+      return updated;
+    });
+    await invalidateCatalog(variant.productId);
 
     res.json({ variant });
   } catch (err) {

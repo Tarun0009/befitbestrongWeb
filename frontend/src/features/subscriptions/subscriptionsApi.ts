@@ -162,7 +162,11 @@ export const subscriptionsApi = createApi({
       { subscription: UserSubscription },
       { planId: string; orderId: string; quantity: number; frequencyDays: number; userKey: string }
     >({
-      query: ({ userKey: _userKey, ...body }) => ({ url: "/subscriptions", method: "POST", body }),
+      query: ({ planId, orderId, quantity, frequencyDays }) => ({
+        url: "/subscriptions",
+        method: "POST",
+        body: { planId, orderId, quantity, frequencyDays },
+      }),
       invalidatesTags: (_result, _error, arg) => [
         { type: "Subscriptions", id: arg.userKey },
         "AdminSubscriptions",

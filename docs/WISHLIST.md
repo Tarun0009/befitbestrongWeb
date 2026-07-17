@@ -59,16 +59,21 @@ Admin page: /admin/demand
 An email run is eligible only when admin inventory crosses from zero or below to
 a positive value. Normal in-stock edits and repeated zero values do not notify.
 
-The admin stock update succeeds even if the optional email adapter fails. Failed
-emails stay active for a later retry; successfully sent alerts are marked inactive
-with notifiedAt. If Resend is not configured, demand continues to be collected and
-the admin dashboard shows that delivery is paused.
+The admin stock update and a frozen outbox message commit in one database
+transaction. Provider delivery happens later with a stable idempotency key and
+bounded retry. Failed messages remain visible for automatic/admin recovery;
+successfully accepted alerts are atomically marked inactive with `notifiedAt`.
+If the user removes or supersedes an alert before delivery, source validation
+cancels the queued message. If Resend is unconfigured, demand continues to be
+collected and the admin email-delivery page shows that delivery is paused.
 
 Required optional environment values:
 
 - RESEND_API_KEY
 - EMAIL_FROM
 - FRONTEND_URL
+
+See `EMAIL_OUTBOX.md` for worker, retry, and operations details.
 
 ## Verification
 

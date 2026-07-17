@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { CheckCircle2, Loader2, MapPin, XCircle } from "lucide-react";
 import { useAppSelector } from "@/lib/hooks";
 import { formatINR } from "@/lib/format";
@@ -51,8 +51,7 @@ export function PincodeChecker({
     onResult?.(null);
   }
 
-  async function handleCheck(event: FormEvent) {
-    event.preventDefault();
+  async function handleCheck() {
     if (!/^\d{6}$/.test(pincode)) return;
     setRequestMessage(null);
     try {
@@ -92,7 +91,7 @@ export function PincodeChecker({
         <MapPin className="h-4 w-4 text-primary-foreground" />
         <h2 className="text-sm font-semibold">{heading}</h2>
       </div>
-      <form onSubmit={handleCheck} className="mt-3 flex gap-2">
+      <div className="mt-3 flex gap-2">
         <label className="sr-only" htmlFor={"delivery-pincode-" + (productId ?? source)}>
           PIN code
         </label>
@@ -100,19 +99,26 @@ export function PincodeChecker({
           id={"delivery-pincode-" + (productId ?? source)}
           value={pincode}
           onChange={(event) => updateValue(event.target.value)}
+          onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              void handleCheck();
+            }
+          }}
           inputMode="numeric"
           autoComplete="postal-code"
           placeholder="6-digit PIN code"
           className="h-11 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/30"
         />
         <button
-          type="submit"
+          type="button"
+          onClick={() => void handleCheck()}
           disabled={pincode.length !== 6 || isFetching}
           className="inline-flex h-11 items-center justify-center rounded-lg bg-foreground px-4 text-sm font-semibold text-background disabled:opacity-50"
         >
           {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
         </button>
-      </form>
+      </div>
 
       {checkError && (
         <p className="mt-3 text-xs text-red-600">

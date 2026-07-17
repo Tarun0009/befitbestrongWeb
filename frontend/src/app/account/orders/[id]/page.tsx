@@ -135,6 +135,78 @@ function Inner() {
         </section>
 
         <aside className="space-y-6">
+          {order.shipments?.length > 0 && (
+            <section className="rounded-lg border border-border p-5">
+              <h2 className="font-medium">Track shipment</h2>
+              <div className="mt-3 space-y-4">
+                {order.shipments.map((shipment) => (
+                  <article
+                    key={shipment.id}
+                    className="rounded-md border border-border bg-muted/20 p-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium">
+                          {shipment.carrier}
+                          {shipment.service ? ` · ${shipment.service}` : ""}
+                        </p>
+                        <p className="mt-1 font-mono text-xs text-muted-foreground">
+                          {shipment.trackingNumber}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-background px-2 py-0.5 text-xs font-medium ring-1 ring-inset ring-border">
+                        {formatShipmentStatus(shipment.status)}
+                      </span>
+                    </div>
+                    {shipment.estimatedDeliveryAt && (
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        Estimated delivery{" "}
+                        {new Date(
+                          shipment.estimatedDeliveryAt,
+                        ).toLocaleDateString("en-IN", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </p>
+                    )}
+                    {shipment.trackingUrl && (
+                      <a
+                        href={shipment.trackingUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-3 inline-flex rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90"
+                      >
+                        Track with carrier ↗
+                      </a>
+                    )}
+                    {shipment.events.length > 0 && (
+                      <ol className="mt-4 space-y-3 border-l border-border pl-4">
+                        {shipment.events.map((event) => (
+                          <li key={event.id} className="relative">
+                            <span className="absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full bg-foreground" />
+                            <p className="text-sm font-medium">
+                              {formatShipmentStatus(event.status)}
+                            </p>
+                            {event.description && (
+                              <p className="text-xs text-muted-foreground">
+                                {event.description}
+                              </p>
+                            )}
+                            <p className="text-xs text-muted-foreground">
+                              {event.location ? `${event.location} · ` : ""}
+                              {new Date(event.occurredAt).toLocaleString("en-IN")}
+                            </p>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
           <section className="rounded-lg border border-border p-5">
             <h2 className="font-medium">Shipping</h2>
             <address className="mt-3 not-italic text-sm text-muted-foreground">
@@ -220,6 +292,37 @@ function Inner() {
             </section>
           )}
 
+          {order.refunds.length > 0 && (
+            <section className="rounded-lg border border-border p-5">
+              <h2 className="font-medium">Refunds</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Provider confirmation can take a short time after a refund is requested.
+              </p>
+              <ol className="mt-3 space-y-3">
+                {order.refunds.map((refund) => (
+                  <li key={refund.id} className="rounded-md bg-muted/30 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold tabular-nums">
+                          {formatINR(refund.amount)}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {refund.reason}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-background px-2 py-1 text-[10px] font-semibold ring-1 ring-inset ring-border">
+                        {formatShipmentStatus(refund.status)}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      Requested {new Date(refund.createdAt).toLocaleString("en-IN")}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
+
           {order.history.length > 0 && (
             <section className="rounded-lg border border-border p-5">
               <h2 className="font-medium">Progress</h2>
@@ -254,6 +357,14 @@ function Inner() {
       </div>
     </main>
   );
+}
+
+function formatShipmentStatus(status: string) {
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function StatusPill({ status }: { status: OrderStatus }) {

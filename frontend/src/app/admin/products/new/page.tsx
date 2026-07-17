@@ -145,7 +145,7 @@ export default function NewProductPage() {
           </div>
 
           <p className="mt-2 text-xs text-muted-foreground">
-            SKU must be unique across the catalog. Price defaults to the product's base price if you leave it blank.
+            SKU must be unique across the catalog. Price defaults to the product&apos;s base price if you leave it blank.
           </p>
 
           <div className="mt-4 space-y-3">
