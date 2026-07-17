@@ -22,11 +22,17 @@ router.get("/analytics/summary", async (_req, res, next) => {
     type TodayRow = { revenue: bigint | null; count: bigint };
     const todayRows = await prisma.$queryRaw<TodayRow[]>`
       SELECT
-        COALESCE(SUM(total), 0)::bigint AS revenue,
+        COALESCE(SUM(o.total - COALESCE(r.refunded, 0)), 0)::bigint AS revenue,
         COUNT(*)::bigint AS count
-      FROM "Order"
-      WHERE status IN ('PAID', 'SHIPPED', 'DELIVERED')
-        AND "createdAt" >= date_trunc('day', now())
+      FROM "Order" o
+      LEFT JOIN (
+        SELECT "orderId", SUM(amount)::bigint AS refunded
+        FROM "RefundIntent"
+        WHERE status = 'PROCESSED'
+        GROUP BY "orderId"
+      ) r ON r."orderId" = o.id
+      WHERE o.status IN ('PAID', 'SHIPPED', 'DELIVERED')
+        AND o."createdAt" >= date_trunc('day', now())
     `;
 
     // GROUP BY on the enum. Emits a row per status; missing statuses are 0.

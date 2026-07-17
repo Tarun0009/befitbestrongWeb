@@ -1,0 +1,171 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Full 40-character commit SHA published by the release workflow
+        required: true
+        type: string
+      confirmation:
+        description: Confirm the production deployment
+        required: true
+        default: CANCEL
+        type: choice
+        options:
+          - CANCEL
+          - DEPLOY
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate request
+    if: inputs.confirmation == 'DEPLOY'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require an immutable commit SHA
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          if [[ ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "release_sha must be a lowercase, full 40-character Git commit SHA."
+            exit 1
+          fi
+
+  deploy:
+    name: Deploy immutable release
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.PUBLIC_SITE_URL }}
+    steps:
+      - name: Check out the requested release
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.release_sha }}
+          fetch-depth: 0
+
+      - name: Normalize image names
+        id: images
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          owner="${OWNER,,}"
+          echo "backend=ghcr.io/$owner/befitbestrong-api" >> "$GITHUB_OUTPUT"
+          echo "frontend=ghcr.io/$owner/befitbestrong-web" >> "$GITHUB_OUTPUT"
+
+      - name: Validate production configuration
+        env:
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          required=(
+            DEPLOY_PATH PUBLIC_SITE_URL DEPLOY_HOST DEPLOY_USER
+            DEPLOY_SSH_PRIVATE_KEY DEPLOY_SSH_KNOWN_HOSTS
+            GHCR_USERNAME GHCR_READ_TOKEN
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing production environment value: $name"
+              exit 1
+            fi
+          done
+
+          if [[ ! "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+            echo "DEPLOY_PATH must be an absolute path containing only safe path characters."
+            exit 1
+          fi
+          if [[ ! "$DEPLOY_USER" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]]; then
+            echo "DEPLOY_USER contains unsupported characters."
+            exit 1
+          fi
+          if [[ ! "$DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]; then
+            echo "DEPLOY_HOST must be a DNS hostname or IPv4 address."
+            exit 1
+          fi
+          if [[ ! "$GHCR_USERNAME" =~ ^[A-Za-z0-9-]+$ ]]; then
+            echo "GHCR_USERNAME contains unsupported characters."
+            exit 1
+          fi
+
+      - name: Sign in to GitHub Container Registry
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify immutable images exist
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          BACKEND_IMAGE: ${{ steps.images.outputs.backend }}
+          FRONTEND_IMAGE: ${{ steps.images.outputs.frontend }}
+        run: |
+          docker buildx imagetools inspect "$BACKEND_IMAGE:$RELEASE_SHA"
+          docker buildx imagetools inspect "$FRONTEND_IMAGE:$RELEASE_SHA"
+
+      - name: Configure trusted SSH connection
+        env:
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/id_ed25519" "$HOME/.ssh/known_hosts"
+
+      - name: Sign deployment host in to GHCR
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_READ_TOKEN" | ssh -o BatchMode=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "docker login ghcr.io --username '$GHCR_USERNAME' --password-stdin"
+
+      - name: Deploy on production host
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          BACKEND_IMAGE: ${{ steps.images.outputs.backend }}
+          FRONTEND_IMAGE: ${{ steps.images.outputs.frontend }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+        run: |
+          ssh -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" "
+            set -euo pipefail
+            cd '$DEPLOY_PATH'
+            git fetch --prune origin
+            git cat-file -e '$RELEASE_SHA^{commit}'
+            git checkout --detach '$RELEASE_SHA'
+            export RELEASE_SHA='$RELEASE_SHA'
+            export BACKEND_IMAGE='$BACKEND_IMAGE'
+            export FRONTEND_IMAGE='$FRONTEND_IMAGE'
+            bash deploy/scripts/deploy-release.sh
+          "
+
+      - name: Record deployment
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL }}
+        run: |
+          echo "### Production deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release: \`$RELEASE_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Site: $PUBLIC_SITE_URL" >> "$GITHUB_STEP_SUMMARY"

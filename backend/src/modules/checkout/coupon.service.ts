@@ -129,3 +129,23 @@ export async function consumeCouponUsage(
     );
   }
 }
+
+/**
+ * Restore a normal promotional coupon when an unpaid reservation is abandoned.
+ * Loyalty coupons deliberately remain consumed because the loyalty ledger
+ * restores their points instead; restoring both would create double value.
+ */
+export async function restoreCouponUsage(
+  tx: Prisma.TransactionClient,
+  couponCode: string | null,
+): Promise<void> {
+  if (!couponCode) return;
+  await tx.coupon.updateMany({
+    where: {
+      code: couponCode,
+      source: { not: "LOYALTY" },
+      usedCount: { gt: 0 },
+    },
+    data: { usedCount: { decrement: 1 } },
+  });
+}

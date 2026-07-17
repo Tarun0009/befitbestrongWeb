@@ -16,6 +16,12 @@ describe("state machine transitions", () => {
     expect(canTransition("PENDING", "FAILED")).toBe(true);
   });
 
+  it("CONFIRMED COD can ship or cancel, but is never marked paid", () => {
+    expect(canTransition("CONFIRMED", "SHIPPED")).toBe(true);
+    expect(canTransition("CONFIRMED", "CANCELLED")).toBe(true);
+    expect(canTransition("CONFIRMED", "PAID")).toBe(false);
+  });
+
   it("PAID can go to SHIPPED or REFUNDED, not CANCELLED", () => {
     expect(canTransition("PAID", "SHIPPED")).toBe(true);
     expect(canTransition("PAID", "REFUNDED")).toBe(true);
@@ -59,10 +65,11 @@ describe("state machine transitions", () => {
     // explicitly documented. This catches accidental additions.
     const legalIncoming: Record<OrderStatus, OrderStatus[]> = {
       PENDING: [],
+      CONFIRMED: [],
       PAID: ["PENDING"],
-      SHIPPED: ["PAID"],
+      SHIPPED: ["PAID", "CONFIRMED"],
       DELIVERED: ["SHIPPED"],
-      CANCELLED: ["PENDING"],
+      CANCELLED: ["PENDING", "CONFIRMED"],
       FAILED: ["PENDING"],
       REFUNDED: ["PAID", "DELIVERED"],
     };

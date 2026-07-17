@@ -7,6 +7,7 @@ import {
   useAdminUpdateCategoryMutation,
   useAdminDeleteCategoryMutation,
 } from "@/lib/catalogApi";
+import { buildChangedFields, hasChangedFields } from "@/lib/changedFields";
 
 interface CategoryRow {
   id: string;
@@ -21,9 +22,10 @@ export default function AdminCategoriesPage() {
   const { data, isLoading } = useAdminListCategoriesQuery();
 
   return (
-    <div className="space-y-8">
-      <section>
-        <h2 className="font-medium">Categories</h2>
+    <div className="space-y-6">
+      <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
+        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Catalog structure</p>
+        <h2 className="mt-2 text-lg font-semibold tracking-tight">Product categories</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Slugs are auto-derived from the name. Renaming a category updates the
           slug — this may break bookmarked category URLs.
@@ -40,7 +42,7 @@ export default function AdminCategoriesPage() {
             No categories yet. Add one below.
           </p>
         ) : (
-          <ul className="mt-4 space-y-2">
+          <ul className="mt-5 space-y-3">
             {data.items.map((c) => (
               <CategoryRowEditor key={c.id} category={c} />
             ))}
@@ -61,14 +63,17 @@ function CategoryRowEditor({ category }: { category: CategoryRow }) {
 
   const [name, setName] = useState(category.name);
   const [description, setDescription] = useState(category.description ?? "");
-  const dirty =
-    name !== category.name || (description || null) !== (category.description ?? null);
+  const categoryPatch = buildChangedFields(
+    { name, description: description || null },
+    { name: category.name, description: category.description },
+  );
+  const dirty = hasChangedFields(categoryPatch);
 
   async function handleSave() {
     try {
       await update({
         id: category.id,
-        body: { name, description: description || undefined },
+        body: categoryPatch,
       }).unwrap();
     } catch (err) {
       const e = err as { data?: { error?: { message?: string } } };
@@ -93,8 +98,8 @@ function CategoryRowEditor({ category }: { category: CategoryRow }) {
   }
 
   return (
-    <li className="rounded-lg border border-border p-5">
-      <div className="grid gap-3 sm:grid-cols-[1fr_2fr_auto_auto_auto]">
+    <li className="rounded-xl border border-black/[0.07] bg-[#faf9f6] p-4 sm:p-5">
+      <div className="grid gap-3 sm:grid-cols-[1fr_2fr_auto_auto_auto] sm:items-center">
         <label className="block">
           <span className="sr-only">Name</span>
           <input
@@ -118,14 +123,14 @@ function CategoryRowEditor({ category }: { category: CategoryRow }) {
         <button
           onClick={handleSave}
           disabled={!dirty || saving}
-          className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-40"
+          className="h-10 rounded-xl border border-black/10 bg-white px-4 text-sm font-semibold hover:bg-black/[0.03] disabled:opacity-40"
         >
           {saving ? "…" : "Save"}
         </button>
         <button
           onClick={handleDelete}
           disabled={deleting || category.productCount > 0}
-          className="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-40"
+          className="h-10 rounded-xl border border-red-200 bg-white px-4 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-40"
           title={
             category.productCount > 0
               ? "Reassign products before deleting"
@@ -171,8 +176,9 @@ function NewCategoryForm() {
   }
 
   return (
-    <section className="rounded-lg border border-border p-5">
-      <h3 className="font-medium">New category</h3>
+    <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
+      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Create</p>
+      <h3 className="mt-2 text-lg font-semibold tracking-tight">New category</h3>
       <form onSubmit={handleSubmit} className="mt-3 space-y-3">
         <label className="block">
           <span className="text-sm font-medium">Name</span>
@@ -195,7 +201,7 @@ function NewCategoryForm() {
         <button
           type="submit"
           disabled={isLoading}
-          className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:opacity-90 disabled:opacity-60"
+          className="h-11 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm hover:brightness-95 disabled:opacity-50"
         >
           {isLoading ? "Creating…" : "Create category"}
         </button>
@@ -205,4 +211,4 @@ function NewCategoryForm() {
 }
 
 const inputCls =
-  "mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30";
+  "mt-1.5 h-11 w-full rounded-xl border border-black/10 bg-[#faf9f6] px-3 text-sm outline-none transition focus:border-foreground/20 focus:bg-white focus:ring-2 focus:ring-primary/35";

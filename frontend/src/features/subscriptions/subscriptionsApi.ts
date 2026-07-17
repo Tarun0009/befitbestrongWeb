@@ -162,7 +162,11 @@ export const subscriptionsApi = createApi({
       { subscription: UserSubscription },
       { planId: string; orderId: string; quantity: number; frequencyDays: number; userKey: string }
     >({
-      query: ({ userKey: _userKey, ...body }) => ({ url: "/subscriptions", method: "POST", body }),
+      query: ({ planId, orderId, quantity, frequencyDays }) => ({
+        url: "/subscriptions",
+        method: "POST",
+        body: { planId, orderId, quantity, frequencyDays },
+      }),
       invalidatesTags: (_result, _error, arg) => [
         { type: "Subscriptions", id: arg.userKey },
         "AdminSubscriptions",
@@ -191,9 +195,9 @@ export const subscriptionsApi = createApi({
     }),
     adminUpdateSubscriptionPlan: builder.mutation<
       { plan: SubscriptionPlan },
-      { id: string; body: { name: string; discountPercent: number; allowedFrequencies: number[]; active: boolean } }
+      { id: string; body: Partial<{ name: string; discountPercent: number; allowedFrequencies: number[]; active: boolean }> }
     >({
-      query: ({ id, body }) => ({ url: "/admin/subscription-plans/" + id, method: "PUT", body }),
+      query: ({ id, body }) => ({ url: "/admin/subscription-plans/" + id, method: "PATCH", body }),
       invalidatesTags: ["Plans", "AdminSubscriptions"],
     }),
     adminDeleteSubscriptionPlan: builder.mutation<void, string>({

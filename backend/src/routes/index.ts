@@ -18,6 +18,7 @@ import bundleRoutes from "../modules/bundles/bundle.routes.js";
 import subscriptionPlansRoutes from "../modules/subscriptions/subscriptionPlans.routes.js";
 import subscriptionsRoutes from "../modules/subscriptions/subscriptions.routes.js";
 import discoveryRoutes from "../modules/discovery/discovery.routes.js";
+import serviceabilityRoutes from "../modules/serviceability/serviceability.routes.js";
 
 const router = Router();
 
@@ -39,9 +40,6 @@ router.use("/bundles", bundleRoutes);
 router.use("/subscription-plans", subscriptionPlansRoutes);
 router.use("/subscriptions", subscriptionsRoutes);
 router.use("/discovery", discoveryRoutes);
+router.use("/serviceability", serviceabilityRoutes);
 
 export default router;
-
-
-
-

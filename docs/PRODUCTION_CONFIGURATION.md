@@ -1,6 +1,6 @@
-# Production Configuration and Launch
+# Production Configuration and Deployment
 
-Phase 11A adds fail-fast environment validation, deployable container examples,
+beFitBeStrong uses fail-fast environment validation, deployable container examples,
 release metadata, and separate liveness/readiness checks. The examples contain
 placeholders only. Real secrets belong in the deployment platform secret store or
 an ignored `deploy/.env.production` file.
@@ -15,6 +15,7 @@ an ignored `deploy/.env.production` file.
 | Firebase | optional, but each SDK group is all-or-none | both client and Admin groups required | both groups required |
 | Razorpay | optional | complete group; test key allowed | complete group; `rzp_live_` key required |
 | Email | optional unless explicitly required | same | same |
+| Courier | manual fallback | manual or complete Shiprocket group | manual or complete Shiprocket group |
 | Log level | debug allowed | `info` or stricter | `info` or stricter |
 
 Backend validation runs before the server opens its port. Frontend validation runs
@@ -50,9 +51,42 @@ https://api.example.com/webhooks/razorpay
 Use a separate webhook secret. Do not reuse the API key secret. The endpoint must
 receive the raw request body; the application already mounts it before JSON parsing.
 
+Keep outbound Razorpay calls bounded. The production template defaults each
+attempt to 5 seconds, permits at most 3 attempts, and starts exponential jitter
+at 250 ms:
+
+```text
+RAZORPAY_HTTP_TIMEOUT_MS=5000
+RAZORPAY_HTTP_MAX_ATTEMPTS=3
+RAZORPAY_HTTP_RETRY_BASE_MS=250
+```
+
+Do not raise these values without checking the reverse-proxy/client request
+deadline and total worst-case budget. Retry safety and recovery behavior are in
+[`PROVIDER_HTTP_RELIABILITY.md`](./PROVIDER_HTTP_RELIABILITY.md).
+
 If email delivery is a launch requirement, set both `RESEND_API_KEY` and
-`EMAIL_FROM`, then set `EMAIL_DELIVERY_REQUIRED=true`. Otherwise leave both values
-empty and the readiness check will report email as optional/unavailable.
+`EMAIL_FROM`, then set `EMAIL_DELIVERY_REQUIRED=true`. Set
+`ADMIN_NOTIFICATION_EMAIL` to the operations inbox that should receive secondary
+new-order alerts. Tune `EMAIL_HTTP_TIMEOUT_MS`, `EMAIL_OUTBOX_SCAN_SECONDS`,
+`EMAIL_OUTBOX_BATCH_SIZE`, and `EMAIL_OUTBOX_MAX_ATTEMPTS` only with an explicit
+queue-age and provider-rate budget. Otherwise leave the provider values empty: the
+readiness check reports email as optional/unavailable, messages remain durably
+`PENDING`, and persistent dashboard alerts still work. Operators can inspect and
+retry delivery at `/admin/email-delivery`; see
+[`EMAIL_OUTBOX.md`](./EMAIL_OUTBOX.md).
+
+Automated courier booking is opt-in. Keep `COURIER_PROVIDER=manual` until a
+dedicated Shiprocket API user, exact pickup-location name, pickup PIN, and webhook
+token are ready. Then set the complete Shiprocket variable group and configure:
+
+```text
+https://api.example.com/webhooks/fulfillment
+```
+
+Use the configured webhook token as Shiprocket's `x-api-key`. The generic path is
+intentional because Shiprocket rejects callback URLs containing its brand
+abbreviations. Manual fulfillment remains available if the integration is disabled.
 
 ## Validate before deployment
 
@@ -83,15 +117,15 @@ values, localhost URLs, malformed URLs, or HTTP deployment URLs stop the build.
 The example binds frontend/backend ports to loopback so a host reverse proxy can
 terminate TLS without exposing raw application ports publicly.
 
-```bash
-docker compose \
-  --env-file deploy/.env.production \
-  -f deploy/docker-compose.production.example.yml \
-  up -d --build
-```
+Create immutable images with the `Release images` GitHub workflow and deploy the
+full released commit SHA with the protected `Deploy production` workflow. The server
+runs `deploy/scripts/deploy-release.sh`, pulls images from GHCR, applies migrations
+once, starts services without building, and verifies health. Follow the
+[CI/CD guide](./CI_CD_GUIDE.md) for initial configuration and rollback.
 
-`migrate` is a one-shot release service that invokes the image-bundled Prisma CLI directly. The backend waits for it to succeed and
-for Redis to become healthy. Migrations do not run once per API replica.
+`migrate` is a one-shot release service that invokes the image-bundled Prisma CLI
+directly. The deployment script waits for it to succeed before starting the backend.
+Migrations do not run once per API replica.
 
 Point the reverse proxy at:
 
@@ -125,5 +159,3 @@ shape changed.
 - Rebuild the frontend after changing any `NEXT_PUBLIC_*` value; those values are
   build-time configuration.
 - Restart backend containers after rotating server-only variables.
-
-

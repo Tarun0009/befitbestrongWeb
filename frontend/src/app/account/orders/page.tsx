@@ -27,7 +27,7 @@ function Inner() {
 
       {error && (
         <div className="mt-8 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
-          Couldn't load orders.
+          Couldn&apos;t load orders.
         </div>
       )}
 
@@ -91,6 +91,8 @@ function StatusPill({ status }: { status: OrderStatus }) {
   const tone: Record<OrderStatus, string> = {
     PENDING:
       "bg-orange-500/10 text-orange-600 ring-1 ring-inset ring-orange-500/20",
+    CONFIRMED:
+      "bg-blue-500/10 text-blue-700 ring-1 ring-inset ring-blue-500/20",
     PAID:
       "bg-emerald-500/10 text-emerald-600 ring-1 ring-inset ring-emerald-500/20",
     SHIPPED:

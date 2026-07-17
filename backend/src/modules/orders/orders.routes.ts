@@ -27,6 +27,7 @@ router.get("/", requireAuth, async (req, res, next) => {
         select: {
           id: true,
           status: true,
+          paymentMethod: true,
           total: true,
           currency: true,
           createdAt: true,
@@ -94,14 +95,55 @@ router.get("/:id", optionalAuth, async (req, res, next) => {
             createdAt: true,
           },
         },
+        refundIntents: {
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            kind: true,
+            amount: true,
+            currency: true,
+            reason: true,
+            status: true,
+            createdAt: true,
+            processedAt: true,
+          },
+        },
+        shipments: {
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            carrier: true,
+            service: true,
+            trackingNumber: true,
+            trackingUrl: true,
+            status: true,
+            estimatedDeliveryAt: true,
+            shippedAt: true,
+            deliveredAt: true,
+            events: {
+              orderBy: { occurredAt: "desc" },
+              select: {
+                id: true,
+                status: true,
+                description: true,
+                location: true,
+                occurredAt: true,
+              },
+            },
+          },
+        },
       },
     });
     if (!order) {
       throw new HttpError(404, "order_not_found", "Order not found");
     }
 
-    const { guestAccessTokenHash: _secret, ...safeOrder } = order;
-    res.json({ order: safeOrder });
+    const {
+      guestAccessTokenHash: _secret,
+      refundIntents,
+      ...safeOrder
+    } = order;
+    res.json({ order: { ...safeOrder, refunds: refundIntents } });
   } catch (err) {
     next(err);
   }

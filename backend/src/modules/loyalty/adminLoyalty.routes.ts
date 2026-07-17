@@ -5,8 +5,30 @@ import {
   getAdminLoyalty,
   updateLoyaltyConfig,
 } from "./loyalty.service.js";
+import { requireAtLeastOneField } from "../../lib/validation.js";
 
 const router = Router();
+
+const loyaltyConfigPatchBody = requireAtLeastOneField(
+  z
+    .object({
+      enabled: z.boolean().optional(),
+      earnPointsPerRupee: z.number().int().min(0).max(100).optional(),
+      redeemPointsPerRupee: z.number().int().min(1).max(10000).optional(),
+      minRedeemPoints: z.number().int().min(1).max(1000000).optional(),
+      maxRedeemPointsPerCoupon: z
+        .number()
+        .int()
+        .positive()
+        .max(1000000)
+        .nullable()
+        .optional(),
+      referralBonusReferrer: z.number().int().min(0).max(1000000).optional(),
+      referralBonusReferred: z.number().int().min(0).max(1000000).optional(),
+      couponValidityDays: z.number().int().min(1).max(365).optional(),
+    })
+    .strict(),
+);
 
 router.get("/loyalty", async (_req, res, next) => {
   try {
@@ -19,34 +41,7 @@ router.get("/loyalty", async (_req, res, next) => {
 
 router.patch("/loyalty/config", async (req, res, next) => {
   try {
-    const body = z
-      .object({
-        enabled: z.boolean().optional(),
-        earnPointsPerRupee: z.number().int().min(0).max(100).optional(),
-        redeemPointsPerRupee: z.number().int().min(1).max(10000).optional(),
-        minRedeemPoints: z.number().int().min(1).max(1000000).optional(),
-        maxRedeemPointsPerCoupon: z
-          .number()
-          .int()
-          .positive()
-          .max(1000000)
-          .nullable()
-          .optional(),
-        referralBonusReferrer: z
-          .number()
-          .int()
-          .min(0)
-          .max(1000000)
-          .optional(),
-        referralBonusReferred: z
-          .number()
-          .int()
-          .min(0)
-          .max(1000000)
-          .optional(),
-        couponValidityDays: z.number().int().min(1).max(365).optional(),
-      })
-      .parse(req.body);
+    const body = loyaltyConfigPatchBody.parse(req.body);
     const result = await updateLoyaltyConfig(body);
     res.json(result);
   } catch (error) {

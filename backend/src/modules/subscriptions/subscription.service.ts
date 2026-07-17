@@ -5,7 +5,7 @@ import {
   addFrequencyDays,
   calculateSubscriptionPrice,
 } from "./subscriptionPolicy.js";
-import { sendSubscriptionRenewalEmail } from "./subscriptionEmail.service.js";
+import { queueSubscriptionRenewalEmail } from "./subscriptionEmail.service.js";
 
 const planInclude = {
   variant: {
@@ -109,20 +109,24 @@ export async function createSubscriptionPlan(input: {
 
 export async function updateSubscriptionPlan(
   id: string,
-  input: {
+  input: Partial<{
     name: string;
     discountPercent: number;
     allowedFrequencies: number[];
     active: boolean;
-  },
+  }>,
 ) {
   const row = await prisma.subscriptionPlan.update({
     where: { id },
     data: {
       ...input,
-      allowedFrequencies: [...new Set(input.allowedFrequencies)].sort(
-        (a, b) => a - b,
-      ),
+      ...(input.allowedFrequencies !== undefined
+        ? {
+            allowedFrequencies: [...new Set(input.allowedFrequencies)].sort(
+              (a, b) => a - b,
+            ),
+          }
+        : {}),
     },
     include: planInclude,
   });
@@ -335,7 +339,7 @@ export async function processDueSubscriptions(now = new Date()) {
         },
       });
       if (advance.count === 0) return null;
-      return tx.subscriptionRenewal.upsert({
+      const renewal = await tx.subscriptionRenewal.upsert({
         where: {
           subscriptionId_scheduledFor: {
             subscriptionId: subscription.id,
@@ -352,28 +356,21 @@ export async function processDueSubscriptions(now = new Date()) {
           quantity: subscription.quantity,
         },
       });
+      if (!renewal.notifiedAt) {
+        await queueSubscriptionRenewalEmail(tx, {
+          renewalId: renewal.id,
+          to: subscription.contactEmail,
+          productName: subscription.plan.variant.product.name,
+          quantity: subscription.quantity,
+          ready,
+          discountedTotal: discountedUnitPrice * subscription.quantity,
+        });
+      }
+      return renewal;
     });
 
     if (!renewal) continue;
     results.push({ id: renewal.id, status });
-    if (!renewal.notifiedAt) {
-      void sendSubscriptionRenewalEmail({
-        to: subscription.contactEmail,
-        productName: subscription.plan.variant.product.name,
-        quantity: subscription.quantity,
-        ready,
-        discountedTotal: discountedUnitPrice * subscription.quantity,
-      })
-        .then(async (sent) => {
-          if (sent) {
-            await prisma.subscriptionRenewal.update({
-              where: { id: renewal.id },
-              data: { notifiedAt: new Date() },
-            });
-          }
-        })
-        .catch(() => undefined);
-    }
   }
 
   return { processed: results.length, results };

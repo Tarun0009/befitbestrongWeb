@@ -16,6 +16,7 @@ import {
   type AdminProductDetail,
 } from "@/lib/catalogApi";
 import { formatINR } from "@/lib/format";
+import { buildChangedFields, hasChangedFields } from "@/lib/changedFields";
 
 function rupeesToPaise(value: string): number | null {
   if (!value.trim()) return null;
@@ -58,14 +59,14 @@ export default function AdminEditProductPage() {
 
   return (
     <div>
-      <nav className="mb-6 text-sm text-muted-foreground">
+      <nav className="mb-5 text-sm font-medium text-muted-foreground">
         <Link href="/admin/products" className="hover:text-foreground">
           Products
         </Link>{" "}
         / <span className="font-mono">{product.slug}</span>
       </nav>
 
-      <header className="flex items-baseline justify-between gap-4">
+      <header className="flex flex-col gap-4 rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div>
           <h2 className="text-2xl font-semibold">{product.name}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -81,7 +82,7 @@ export default function AdminEditProductPage() {
         </Link>
       </header>
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_320px]">
+      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-6">
           <CoreFields product={product} />
           <VariantEditor product={product} />
@@ -90,7 +91,7 @@ export default function AdminEditProductPage() {
         <aside className="space-y-6">
           <ImageEditor product={product} />
 
-          <section className="rounded-lg border border-red-300 p-5">
+          <section className="rounded-2xl border border-red-200 bg-red-50/40 p-5 shadow-[0_10px_35px_rgba(127,29,29,0.04)]">
             <h3 className="font-medium text-red-700">Danger zone</h3>
             <p className="mt-2 text-sm text-muted-foreground">
               Deleting a product removes it from listings and search. Existing
@@ -129,6 +130,27 @@ function CoreFields({ product }: { product: AdminProductDetail }) {
   const [active, setActive] = useState(product.active);
   const [status, setStatus] = useState<string | null>(null);
 
+  const currentValues = {
+    name,
+    description,
+    categoryId,
+    basePrice: rupeesToPaise(basePrice) ?? -1,
+    compareAtPrice: rupeesToPaise(compareAtPrice),
+    dispatchHint: dispatchHint.trim() || null,
+    active,
+  };
+  const originalValues = {
+    name: product.name,
+    description: product.description,
+    categoryId: product.categoryId,
+    basePrice: product.basePrice,
+    compareAtPrice: product.compareAtPrice,
+    dispatchHint: product.dispatchHint,
+    active: product.active,
+  };
+  const productPatch = buildChangedFields(currentValues, originalValues);
+  const dirty = hasChangedFields(productPatch);
+
   // Reset local form state when we navigate to a different product.
   useEffect(() => {
     setName(product.name);
@@ -155,19 +177,12 @@ function CoreFields({ product }: { product: AdminProductDetail }) {
       setStatus("MRP should be higher than the base price, or left empty.");
       return;
     }
+    if (!dirty) {
+      setStatus("Nothing to save.");
+      return;
+    }
     try {
-      await update({
-        id: product.id,
-        body: {
-          name,
-          description,
-          categoryId,
-          basePrice: priceInPaise,
-          compareAtPrice: mrpInPaise,
-          dispatchHint: dispatchHint.trim() || null,
-          active,
-        },
-      }).unwrap();
+      await update({ id: product.id, body: productPatch }).unwrap();
       setStatus("Saved.");
     } catch (err) {
       const e = err as { data?: { error?: { message?: string } } };
@@ -176,7 +191,7 @@ function CoreFields({ product }: { product: AdminProductDetail }) {
   }
 
   return (
-    <section className="rounded-lg border border-border p-5">
+    <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
       <h3 className="font-medium">Details</h3>
       <form onSubmit={handleSubmit} className="mt-4 space-y-4">
         <Field label="Name">
@@ -254,7 +269,7 @@ function CoreFields({ product }: { product: AdminProductDetail }) {
         <div className="flex items-center gap-3">
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={!dirty || isLoading}
             className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:opacity-90 disabled:opacity-60"
           >
             {isLoading ? "Saving..." : "Save changes"}
@@ -322,7 +337,7 @@ function VariantEditor({ product }: { product: AdminProductDetail }) {
   }
 
   return (
-    <section className="rounded-lg border border-border p-5">
+    <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
       <h3 className="font-medium">Variants</h3>
       <p className="mt-1 text-xs text-muted-foreground">
         Each variant is a purchasable SKU. Stock is decremented at checkout.
@@ -413,25 +428,39 @@ function VariantRow({
   const [price, setPrice] = useState((variant.price / 100).toFixed(2));
   const [stock, setStock] = useState(String(variant.stock));
 
-  const dirty =
-    sku !== variant.sku ||
-    size !== (variant.size ?? "") ||
-    color !== (variant.color ?? "") ||
-    Math.round(Number(price) * 100) !== variant.price ||
-    Number(stock) !== variant.stock;
+  const currentValues = {
+    sku,
+    size: size || null,
+    color: color || null,
+    price: rupeesToPaise(price) ?? -1,
+    stock: stock.trim() ? Number(stock) : -1,
+  };
+  const originalValues = {
+    sku: variant.sku,
+    size: variant.size,
+    color: variant.color,
+    price: variant.price,
+    stock: variant.stock,
+  };
+  const variantPatch = buildChangedFields(currentValues, originalValues);
+  const dirty = hasChangedFields(variantPatch);
 
   async function handleSave() {
+    const priceInPaise = rupeesToPaise(price);
+    const stockValue = Number(stock);
+    if (!sku.trim() || priceInPaise === null || priceInPaise < 0) {
+      alert("SKU and a valid non-negative price are required.");
+      return;
+    }
+    if (!stock.trim() || !Number.isInteger(stockValue) || stockValue < 0) {
+      alert("Stock must be a non-negative whole number.");
+      return;
+    }
     try {
       await updateVariant({
         variantId: variant.id,
         productId,
-        body: {
-          sku,
-          size: size || undefined,
-          color: color || undefined,
-          price: Math.round(Number(price) * 100),
-          stock: Number(stock) || 0,
-        },
+        body: variantPatch,
       }).unwrap();
     } catch (err) {
       const e = err as { data?: { error?: { message?: string } } };
@@ -533,7 +562,7 @@ function ImageEditor({ product }: { product: AdminProductDetail }) {
   }
 
   return (
-    <section className="rounded-lg border border-border p-5">
+    <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
       <h3 className="font-medium">Images</h3>
       <p className="mt-1 text-xs text-muted-foreground">
         First image is used as the primary thumbnail.
@@ -608,7 +637,7 @@ function ImageEditor({ product }: { product: AdminProductDetail }) {
 }
 
 const inputCls =
-  "mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30";
+  "mt-1.5 min-h-11 w-full rounded-xl border border-black/10 bg-[#faf9f6] px-3 py-2 text-sm outline-none transition focus:border-foreground/20 focus:bg-white focus:ring-2 focus:ring-primary/35";
 
 function Field({
   label,

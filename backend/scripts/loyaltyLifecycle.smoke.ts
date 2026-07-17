@@ -200,6 +200,9 @@ try {
   );
 } finally {
   if (orderIds.length) {
+    await prisma.emailOutbox.deleteMany({
+      where: { referenceType: "Order", referenceId: { in: orderIds } },
+    });
     await prisma.order.deleteMany({ where: { id: { in: orderIds } } });
   }
   if (couponCode) {

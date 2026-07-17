@@ -1,4 +1,5 @@
 import { configureStore } from "@reduxjs/toolkit";
+import { setupListeners } from "@reduxjs/toolkit/query";
 import authReducer from "@/features/auth/authSlice";
 import cartUiReducer from "@/features/cart/cartSlice";
 import { authApi } from "@/lib/authApi";
@@ -13,9 +14,12 @@ import { loyaltyApi } from "@/features/loyalty/loyaltyApi";
 import { bundlesApi } from "@/features/bundles/bundlesApi";
 import { subscriptionsApi } from "@/features/subscriptions/subscriptionsApi";
 import { discoveryApi } from "@/features/discovery/discoveryApi";
+import { serviceabilityApi } from "@/features/serviceability/serviceabilityApi";
+import { adminNotificationsApi } from "@/features/adminNotifications/adminNotificationsApi";
+import { emailOutboxApi } from "@/features/emailOutbox/emailOutboxApi";
 
-export const makeStore = () =>
-  configureStore({
+export const makeStore = () => {
+  const store = configureStore({
     reducer: {
       auth: authReducer,
       cartUi: cartUiReducer,
@@ -31,6 +35,9 @@ export const makeStore = () =>
       [bundlesApi.reducerPath]: bundlesApi.reducer,
       [subscriptionsApi.reducerPath]: subscriptionsApi.reducer,
       [discoveryApi.reducerPath]: discoveryApi.reducer,
+      [serviceabilityApi.reducerPath]: serviceabilityApi.reducer,
+      [adminNotificationsApi.reducerPath]: adminNotificationsApi.reducer,
+      [emailOutboxApi.reducerPath]: emailOutboxApi.reducer,
     },
     middleware: (getDefault) =>
       getDefault().concat(
@@ -46,12 +53,16 @@ export const makeStore = () =>
         bundlesApi.middleware,
         subscriptionsApi.middleware,
         discoveryApi.middleware,
+        serviceabilityApi.middleware,
+        adminNotificationsApi.middleware,
+        emailOutboxApi.middleware,
       ),
   });
+  setupListeners(store.dispatch);
+  return store;
+};
 
 export type AppStore = ReturnType<typeof makeStore>;
 export type RootState = ReturnType<AppStore["getState"]>;
 export type AppDispatch = AppStore["dispatch"];
-
-
 

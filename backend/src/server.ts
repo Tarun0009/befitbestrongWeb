@@ -9,6 +9,23 @@ import {
   scheduleSubscriptionRenewals,
   startSubscriptionRenewalsWorker,
 } from "./jobs/subscriptionRenewals.js";
+import {
+  scheduleCourierReconciliation,
+  startCourierEventsWorker,
+  startCourierReconciliationWorker,
+} from "./jobs/courierEvents.js";
+import {
+  scheduleCheckoutExpiry,
+  startCheckoutExpiryWorker,
+} from "./jobs/checkoutExpiry.js";
+import {
+  scheduleRefundReconciliation,
+  startRefundReconciliationWorker,
+} from "./jobs/refundReconciliation.js";
+import {
+  scheduleEmailOutbox,
+  startEmailOutboxWorker,
+} from "./jobs/emailOutbox.js";
 
 const app = createApp();
 const runtimeConfiguration = getRuntimeConfigurationStatus(env);
@@ -29,8 +46,25 @@ const server = app.listen(env.PORT, () => {
 
 const paymentWorker = startPaymentEventsWorker();
 const subscriptionWorker = startSubscriptionRenewalsWorker();
+const courierEventsWorker = startCourierEventsWorker();
+const courierReconciliationWorker = startCourierReconciliationWorker();
+const checkoutExpiryWorker = startCheckoutExpiryWorker();
+const refundReconciliationWorker = startRefundReconciliationWorker();
+const emailOutboxWorker = startEmailOutboxWorker();
 void scheduleSubscriptionRenewals().catch((error) => {
   logger.error({ error }, "subscription renewal schedule failed");
+});
+void scheduleCourierReconciliation().catch((error) => {
+  logger.error({ error }, "courier reconciliation schedule failed");
+});
+void scheduleCheckoutExpiry().catch((error) => {
+  logger.error({ error }, "checkout reservation expiry schedule failed");
+});
+void scheduleRefundReconciliation().catch((error) => {
+  logger.error({ error }, "refund reconciliation schedule failed");
+});
+void scheduleEmailOutbox().catch((error) => {
+  logger.error({ error }, "email outbox schedule failed");
 });
 
 async function shutdown(signal: string) {
@@ -39,6 +73,11 @@ async function shutdown(signal: string) {
     await Promise.allSettled([
       paymentWorker?.close(),
       subscriptionWorker.close(),
+      courierEventsWorker?.close(),
+      courierReconciliationWorker?.close(),
+      checkoutExpiryWorker.close(),
+      refundReconciliationWorker.close(),
+      emailOutboxWorker.close(),
       prisma.$disconnect(),
       redis.quit(),
     ]);

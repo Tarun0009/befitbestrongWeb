@@ -27,20 +27,34 @@ router.use(optionalAuth);
 
 const addressBody = z.object({
   fullName: z.string().trim().min(1).max(120),
-  phone: z.string().trim().min(6).max(20),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^(?:\+91)?[6-9]\d{9}$/, "Enter a valid Indian mobile number"),
   line1: z.string().trim().min(1).max(200),
   line2: z.string().trim().max(200).optional().nullable(),
   city: z.string().trim().min(1).max(80),
   state: z.string().trim().min(1).max(80),
-  pincode: z.string().trim().min(3).max(12),
-  country: z.string().length(2).optional(),
+  pincode: z.string().trim().regex(/^\d{6}$/),
+  country: z.literal("IN").optional(),
 });
 
 const sessionBody = z.object({
   email: z.string().trim().email().optional(),
   couponCode: z.string().trim().max(32).optional().nullable(),
+  paymentMethod: z.enum(["PREPAID", "COD"]).default("PREPAID"),
   address: addressBody,
 });
+
+const idempotencyKey = z
+  .string()
+  .trim()
+  .min(32)
+  .max(128)
+  .regex(
+    /^[A-Za-z0-9._~-]+$/,
+    "Idempotency-Key must contain only URL-safe characters",
+  );
 
 function resolveCheckoutOwner(req: Request): CartOwner {
   if (req.auth) {
@@ -79,7 +93,8 @@ router.post("/coupon/validate", async (req, res, next) => {
 
 router.post("/session", async (req, res, next) => {
   try {
-    const { address, email, couponCode } = sessionBody.parse(req.body);
+    const { address, email, couponCode, paymentMethod } = sessionBody.parse(req.body);
+    const checkoutKey = idempotencyKey.parse(req.get("Idempotency-Key"));
     const contactEmail = (req.auth?.email ?? email)?.trim().toLowerCase();
     if (!contactEmail) {
       throw new HttpError(
@@ -94,8 +109,11 @@ router.post("/session", async (req, res, next) => {
       couponCode,
       cartOwner: resolveCheckoutOwner(req),
       address,
+      paymentMethod,
+      idempotencyKey: checkoutKey,
     });
-    res.status(201).json(result);
+    if (result.replayed) res.setHeader("Idempotency-Replayed", "true");
+    res.status(result.replayed ? 200 : 201).json(result.result);
   } catch (err) {
     next(err);
   }
@@ -140,5 +158,3 @@ router.post("/dev-complete", async (req, res, next) => {
 });
 
 export default router;
-
-

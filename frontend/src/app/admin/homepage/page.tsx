@@ -80,8 +80,8 @@ export default function AdminHomepagePage() {
   }
 
   return (
-    <form onSubmit={handleSave} className="space-y-10">
-      <header>
+    <form onSubmit={handleSave} className="space-y-6">
+      <header className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
         <h2 className="text-2xl font-semibold">Homepage & announcement</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Marketing-editable content for the storefront hero, rewards ticker,
@@ -312,7 +312,7 @@ export default function AdminHomepagePage() {
         </div>
       </Section>
 
-      <div className="flex items-center gap-3 rounded-lg border border-border p-4">
+      <div className="sticky bottom-4 z-20 flex items-center gap-3 rounded-2xl border border-black/10 bg-white/95 p-4 shadow-[0_18px_50px_rgba(23,23,20,0.12)] backdrop-blur-xl">
         <button
           type="submit"
           disabled={saving}
@@ -596,7 +596,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-border p-5">
+    <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
       <div className="mb-4">
         <h3 className="font-medium">{title}</h3>
         {description && <p className="mt-1 text-xs text-muted-foreground">{description}</p>}
@@ -637,4 +637,4 @@ function Toggle({
 }
 
 const inputCls =
-  "mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30";
+  "mt-1.5 min-h-11 w-full rounded-xl border border-black/10 bg-[#faf9f6] px-3 py-2 text-sm outline-none transition focus:border-foreground/20 focus:bg-white focus:ring-2 focus:ring-primary/35";

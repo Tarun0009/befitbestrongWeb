@@ -28,6 +28,7 @@ import { WishlistButton } from "@/features/wishlist/WishlistButton";
 import { StockAlertButton } from "@/features/wishlist/StockAlertButton";
 import { SubscriptionPlanHint } from "@/features/subscriptions/SubscriptionPlanHint";
 import { RecentlyViewedTracker } from "@/features/discovery/RecentlyViewedTracker";
+import { PincodeChecker } from "@/features/serviceability/PincodeChecker";
 const ProductReviews = dynamic(
   () => import("@/features/reviews/ProductReviews").then((module) => module.ProductReviews),
   { loading: BelowFoldLoading },
@@ -518,6 +519,10 @@ export default function ProductDetailPage() {
               )}
             </div>
 
+            <div className="mt-5">
+              <PincodeChecker productId={data.id} source="product" />
+            </div>
+
             <SubscriptionPlanHint variantId={activeVariant?.id ?? null} />
 
             <div className="mt-5 grid gap-2 sm:grid-cols-3">
@@ -640,12 +645,3 @@ function TrustItem({
     </div>
   );
 }
-
-
-
-
-
-
-
-
-

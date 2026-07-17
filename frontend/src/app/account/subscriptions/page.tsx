@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useState } from "react";
 import { RequireAuth } from "@/features/auth/RequireAuth";
 import { useAppSelector } from "@/lib/hooks";
@@ -61,7 +62,7 @@ function SubscriptionsBody() {
             const busy = controlling && busyId === subscription.id;
             return <article key={subscription.id} className="overflow-hidden rounded-2xl border border-border">
               <div className="flex flex-col gap-5 p-5 sm:flex-row sm:p-6">
-                <div className="h-28 w-28 shrink-0 overflow-hidden rounded-xl bg-muted">{product.images[0]?.url && <img src={product.images[0].url} alt={product.images[0].alt ?? product.name} className="h-full w-full object-cover" />}</div>
+                <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-xl bg-muted">{product.images[0]?.url && <Image src={product.images[0].url} alt={product.images[0].alt ?? product.name} fill sizes="112px" className="object-cover" />}</div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{subscription.planNameSnapshot}</p><Link href={"/shop/" + product.slug} className="mt-1 block text-xl font-semibold hover:underline">{product.name}</Link><p className="mt-1 text-xs text-muted-foreground">{[subscription.plan.variant.size, subscription.plan.variant.color].filter(Boolean).join(" / ") || subscription.plan.variant.sku}</p></div>

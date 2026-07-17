@@ -28,7 +28,7 @@ export default function CartPage() {
     return (
       <main className="mx-auto max-w-5xl px-6 py-16">
         <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
-          Couldn't load cart.
+          Couldn&apos;t load cart.
         </div>
       </main>
     );

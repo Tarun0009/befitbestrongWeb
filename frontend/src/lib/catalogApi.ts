@@ -349,8 +349,8 @@ export const catalogApi = createApi({
         productId: string;
         body: Partial<{
           sku: string;
-          size: string;
-          color: string;
+          size: string | null;
+          color: string | null;
           price: number;
           stock: number;
         }>;
@@ -478,8 +478,8 @@ export const catalogApi = createApi({
         id: string;
         body: Partial<{
           name: string;
-          description: string;
-          parentId: string;
+          description: string | null;
+          parentId: string | null;
         }>;
       }
     >({

@@ -107,7 +107,7 @@ export default function HomePage() {
                   />
                 </div>
                 <div className="p-4">
-                  <p className="text-xs font-medium uppercase tracking-widest text-primary">
+                  <p className="text-xs font-medium uppercase tracking-widest text-primary-emphasis">
                     {tile.tag}
                   </p>
                   <div className="mt-2 flex items-center justify-between gap-3">
@@ -160,7 +160,7 @@ export default function HomePage() {
           <div className="mx-auto grid max-w-6xl gap-8 px-6 py-14 sm:py-16 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
             <div>
               {spotlight.eyebrow && (
-                <p className="text-xs font-medium uppercase tracking-widest text-primary">
+                <p className="text-xs font-medium uppercase tracking-widest text-primary-emphasis">
                   {spotlight.eyebrow}
                 </p>
               )}

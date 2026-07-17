@@ -145,7 +145,21 @@ try {
   }));
 } finally {
   if (orderId) await prisma.order.deleteMany({ where: { id: orderId } });
-  if (userId) await prisma.user.deleteMany({ where: { id: userId } });
+  if (userId) {
+    const renewalIds = await prisma.subscriptionRenewal.findMany({
+      where: { subscription: { userId } },
+      select: { id: true },
+    });
+    if (renewalIds.length > 0) {
+      await prisma.emailOutbox.deleteMany({
+        where: {
+          referenceType: "SubscriptionRenewal",
+          referenceId: { in: renewalIds.map((renewal) => renewal.id) },
+        },
+      });
+    }
+    await prisma.user.deleteMany({ where: { id: userId } });
+  }
   if (planId) await prisma.subscriptionPlan.deleteMany({ where: { id: planId } });
   if (productId) await prisma.product.deleteMany({ where: { id: productId } });
   if (categoryId) await prisma.category.deleteMany({ where: { id: categoryId } });

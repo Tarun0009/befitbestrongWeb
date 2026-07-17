@@ -68,6 +68,7 @@ try {
   const checkout = await createCheckoutSession({
     userId: null,
     contactEmail: "bundle-smoke@example.test",
+    paymentMethod: "PREPAID",
     cartOwner: owner,
     address: {
       fullName: "Bundle Smoke",
@@ -126,7 +127,12 @@ try {
   );
 } finally {
   await clearCart(owner);
-  if (orderId) await prisma.order.deleteMany({ where: { id: orderId } });
+  if (orderId) {
+    await prisma.emailOutbox.deleteMany({
+      where: { referenceType: "Order", referenceId: orderId },
+    });
+    await prisma.order.deleteMany({ where: { id: orderId } });
+  }
   if (bundleId) await prisma.bundle.deleteMany({ where: { id: bundleId } });
   if (productId) await prisma.product.deleteMany({ where: { id: productId } });
   if (categoryId) await prisma.category.deleteMany({ where: { id: categoryId } });

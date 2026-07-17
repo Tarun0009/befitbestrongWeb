@@ -46,6 +46,10 @@ function SuccessContent() {
 
   const order = data?.order;
   const isPaid = order?.status === "PAID";
+  const isCodConfirmed =
+    order?.paymentMethod === "COD" &&
+    ["CONFIRMED", "SHIPPED", "DELIVERED"].includes(order.status);
+  const isConfirmed = isPaid || isCodConfirmed;
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-14 sm:px-6 sm:py-20">
@@ -57,7 +61,7 @@ function SuccessContent() {
               : "grid h-12 w-12 place-items-center rounded-xl bg-primary/15 text-foreground"
           }
         >
-          {isPaid ? (
+          {isConfirmed ? (
             <CheckCircle2 className="h-6 w-6" />
           ) : (
             <Clock3 className="h-6 w-6" />
@@ -65,15 +69,23 @@ function SuccessContent() {
         </span>
 
         <p className="mt-6 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-          {isPaid ? "Order confirmed" : "Payment processing"}
+          {isCodConfirmed
+            ? "COD order confirmed"
+            : isPaid
+              ? "Order confirmed"
+              : "Payment processing"}
         </p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-          {isPaid ? "Thank you for your order" : "We are confirming your payment"}
+          {isConfirmed
+            ? "Thank you for your order"
+            : "We are confirming your payment"}
         </h1>
         <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
-          {isPaid
-            ? "Your order is being prepared. Keep the order number below for your records."
-            : "Payment confirmation normally takes a few seconds. This page updates automatically."}
+          {isCodConfirmed
+            ? "Your order is confirmed. Keep the cash amount ready when the delivery arrives."
+            : isPaid
+              ? "Your order is being prepared. Keep the order number below for your records."
+              : "Payment confirmation normally takes a few seconds. This page updates automatically."}
         </p>
 
         {error && (
@@ -101,6 +113,9 @@ function SuccessContent() {
             <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
               <span className="rounded-full bg-background px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ring-border">
                 {order.status}
+              </span>
+              <span className="text-muted-foreground">
+                {order.paymentMethod === "COD" ? "Cash on delivery" : "Paid online"}
               </span>
               <span className="text-muted-foreground">
                 Contact: {order.contactEmail}

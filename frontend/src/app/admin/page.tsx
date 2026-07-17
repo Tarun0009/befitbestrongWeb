@@ -2,247 +2,598 @@
 
 import Link from "next/link";
 import {
+  AlertTriangle,
+  ArrowRight,
+  BellRing,
+  CheckCircle2,
+  IndianRupee,
+  PackagePlus,
+  PanelsTopLeft,
+  RefreshCw,
+  ShoppingBag,
+  Store,
+  type LucideIcon,
+} from "lucide-react";
+import {
   useGetAnalyticsSummaryQuery,
   useGetTopProductsQuery,
   type AnalyticsSummary,
 } from "@/lib/adminAnalyticsApi";
 import { formatINR } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 type OrderStatus = keyof AnalyticsSummary["ordersByStatus"];
 
-const STATUS_ORDER: OrderStatus[] = [
-  "PENDING",
-  "PAID",
-  "SHIPPED",
-  "DELIVERED",
-  "CANCELLED",
-  "FAILED",
-  "REFUNDED",
+const ORDER_STATUSES: Array<{
+  key: OrderStatus;
+  label: string;
+  dot: string;
+  bar: string;
+}> = [
+  {
+    key: "PENDING",
+    label: "Pending",
+    dot: "bg-orange-500",
+    bar: "bg-orange-400",
+  },
+  {
+    key: "PAID",
+    label: "Paid",
+    dot: "bg-blue-500",
+    bar: "bg-blue-500",
+  },
+  {
+    key: "SHIPPED",
+    label: "Shipped",
+    dot: "bg-violet-500",
+    bar: "bg-violet-500",
+  },
+  {
+    key: "DELIVERED",
+    label: "Delivered",
+    dot: "bg-emerald-500",
+    bar: "bg-emerald-500",
+  },
+  {
+    key: "CANCELLED",
+    label: "Cancelled",
+    dot: "bg-slate-400",
+    bar: "bg-slate-400",
+  },
+  {
+    key: "FAILED",
+    label: "Failed",
+    dot: "bg-red-500",
+    bar: "bg-red-500",
+  },
+  {
+    key: "REFUNDED",
+    label: "Refunded",
+    dot: "bg-rose-400",
+    bar: "bg-rose-400",
+  },
 ];
 
 export default function AdminOverviewPage() {
-  const { data: summary, isLoading: sLoading } = useGetAnalyticsSummaryQuery();
-  const { data: top, isLoading: tLoading } = useGetTopProductsQuery({
+  const {
+    data: summary,
+    isLoading: summaryLoading,
+    isFetching: summaryFetching,
+    isError: summaryError,
+    refetch: refetchSummary,
+  } = useGetAnalyticsSummaryQuery();
+  const {
+    data: topProducts,
+    isLoading: productsLoading,
+    isFetching: productsFetching,
+    isError: productsError,
+    refetch: refetchProducts,
+  } = useGetTopProductsQuery({
     days: 30,
     limit: 5,
   });
 
+  const openOrders = summary
+    ? (summary.ordersByStatus.PENDING ?? 0) +
+      (summary.ordersByStatus.PAID ?? 0) +
+      (summary.ordersByStatus.SHIPPED ?? 0)
+    : undefined;
+
+  const orderCounts = ORDER_STATUSES.map(
+    (status) => summary?.ordersByStatus[status.key] ?? 0,
+  );
+  const maxOrderCount = Math.max(1, ...orderCounts);
+  const isRefreshing = summaryFetching || productsFetching;
+
+  function refreshDashboard() {
+    void refetchSummary();
+    void refetchProducts();
+  }
+
   return (
-    <div className="space-y-8">
-      {/* Top row — headline metrics */}
-      <section className="grid gap-4 sm:grid-cols-3">
-        <Stat
+    <div className="space-y-6 lg:space-y-8">
+      <section className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            Today at a glance
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+            Store operations
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+            Revenue, orders, inventory risk, and product performance in one
+            decision-ready view.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={refreshDashboard}
+          disabled={isRefreshing}
+          className="inline-flex h-10 w-fit items-center gap-2 rounded-xl border border-black/10 bg-white px-4 text-sm font-semibold shadow-sm transition hover:bg-black/[0.03] disabled:opacity-60"
+        >
+          <RefreshCw
+            className={cn("h-4 w-4", isRefreshing && "animate-spin")}
+          />
+          {isRefreshing ? "Refreshing" : "Refresh data"}
+        </button>
+      </section>
+
+      {(summaryError || productsError) && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+        >
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">Some dashboard data could not load.</p>
+            <p className="mt-1 text-red-700">
+              Refresh the dashboard. If the issue continues, verify the API and
+              administrator session.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <section
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        aria-label="Store metrics"
+      >
+        <StatCard
           label="Revenue today"
-          value={summary ? formatINR(summary.revenueToday) : "—"}
-          hint={
-            summary
-              ? `${summary.ordersToday} order${summary.ordersToday === 1 ? "" : "s"}`
-              : undefined
-          }
+          value={summary ? formatINR(summary.revenueToday) : undefined}
+          hint="Confirmed revenue for the current day"
+          icon={IndianRupee}
+          iconClassName="bg-amber-100 text-amber-800"
+          accentClassName="bg-primary"
+          loading={summaryLoading}
         />
-        <Stat
+        <StatCard
+          label="Orders today"
+          value={summary ? String(summary.ordersToday) : undefined}
+          hint="Orders placed since midnight"
+          icon={ShoppingBag}
+          iconClassName="bg-blue-100 text-blue-700"
+          accentClassName="bg-blue-500"
+          loading={summaryLoading}
+        />
+        <StatCard
           label="Open orders"
-          value={
-            summary
-              ? String(
-                  (summary.ordersByStatus.PENDING ?? 0) +
-                    (summary.ordersByStatus.PAID ?? 0) +
-                    (summary.ordersByStatus.SHIPPED ?? 0),
-                )
-              : "—"
-          }
-          hint="pending + paid + shipped"
+          value={openOrders === undefined ? undefined : String(openOrders)}
+          hint="Pending, paid, or shipped"
+          icon={BellRing}
+          iconClassName="bg-violet-100 text-violet-700"
+          accentClassName="bg-violet-500"
+          loading={summaryLoading}
         />
-        <Stat
+        <StatCard
           label="Low-stock variants"
-          value={summary ? String(summary.lowStockCount) : "—"}
-          hint="< 5 in stock"
+          value={summary ? String(summary.lowStockCount) : undefined}
+          hint="Variants with fewer than five units"
+          icon={AlertTriangle}
+          iconClassName={
+            summary && summary.lowStockCount > 0
+              ? "bg-red-100 text-red-700"
+              : "bg-emerald-100 text-emerald-700"
+          }
+          accentClassName={
+            summary && summary.lowStockCount > 0
+              ? "bg-red-500"
+              : "bg-emerald-500"
+          }
+          loading={summaryLoading}
         />
       </section>
 
-      {/* Second row — orders by status + top products */}
-      <section className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-lg border border-border p-5">
-          <div className="flex items-baseline justify-between">
-            <h2 className="font-medium">Orders by status</h2>
-            <Link
-              href="/admin/orders"
-              className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
-            >
-              View all →
-            </Link>
-          </div>
-          {sLoading ? (
-            <SkeletonList rows={7} />
-          ) : (
-            <ul className="mt-3 space-y-2 text-sm">
-              {STATUS_ORDER.map((s) => (
-                <li key={s} className="flex items-center justify-between">
-                  <Link
-                    href={`/admin/orders?status=${s}`}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    {s}
-                  </Link>
-                  <span className="tabular-nums">
-                    {summary?.ordersByStatus[s] ?? 0}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+      <section className="grid gap-6 xl:grid-cols-12">
+        <article className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6 xl:col-span-7">
+          <CardHeader
+            eyebrow="Order pipeline"
+            title="Orders by status"
+            actionHref="/admin/orders"
+            actionLabel="View all orders"
+          />
 
-        <div className="rounded-lg border border-border p-5">
-          <div className="flex items-baseline justify-between">
-            <h2 className="font-medium">Top products · 30 days</h2>
-            <Link
-              href="/admin/products"
-              className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
-            >
-              All products →
-            </Link>
-          </div>
-          {tLoading ? (
-            <SkeletonList rows={5} />
-          ) : !top || top.items.length === 0 ? (
-            <p className="mt-4 text-sm text-muted-foreground">
-              No sales in this window yet.
-            </p>
+          {summaryLoading ? (
+            <SkeletonList rows={7} />
+          ) : summaryError || !summary ? (
+            <EmptyState
+              icon={AlertTriangle}
+              title="Order pipeline unavailable"
+              description="Refresh the dashboard to load current order status totals."
+            />
           ) : (
-            <ol className="mt-3 space-y-2 text-sm">
-              {top.items.map((p, i) => (
-                <li key={p.productId}>
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="truncate">
-                      <span className="mr-2 text-muted-foreground tabular-nums">
-                        {i + 1}.
+            <div className="mt-6 space-y-4">
+              {ORDER_STATUSES.map((status) => {
+                const count = summary?.ordersByStatus[status.key] ?? 0;
+                const width =
+                  count === 0 ? 0 : Math.max(4, (count / maxOrderCount) * 100);
+                return (
+                  <Link
+                    key={status.key}
+                    href={"/admin/orders?status=" + status.key}
+                    className="group block"
+                  >
+                    <div className="flex items-center justify-between gap-4 text-sm">
+                      <span className="flex items-center gap-2.5 font-medium text-foreground/80 group-hover:text-foreground">
+                        <span
+                          className={cn("h-2 w-2 rounded-full", status.dot)}
+                        />
+                        {status.label}
                       </span>
-                      <Link
-                        href={`/shop/${p.slug}`}
-                        target="_blank"
-                        className="hover:underline"
-                      >
-                        {p.name}
-                      </Link>
+                      <span className="font-semibold tabular-nums">{count}</span>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#f0efe9]">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-[width] duration-500",
+                          status.bar,
+                        )}
+                        style={{ width: String(width) + "%" }}
+                      />
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </article>
+
+        <article className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6 xl:col-span-5">
+          <CardHeader
+            eyebrow="Last 30 days"
+            title="Top products"
+            actionHref="/admin/products"
+            actionLabel="Manage catalog"
+          />
+
+          {productsLoading ? (
+            <SkeletonList rows={5} />
+          ) : productsError ? (
+            <EmptyState
+              icon={AlertTriangle}
+              title="Product performance unavailable"
+              description="Refresh the dashboard to load the latest sales ranking."
+            />
+          ) : !topProducts || topProducts.items.length === 0 ? (
+            <EmptyState
+              icon={ShoppingBag}
+              title="No sales in this window"
+              description="Top-selling products will appear after orders are recorded."
+            />
+          ) : (
+            <ol className="mt-5 divide-y divide-black/[0.06]">
+              {topProducts.items.map((product, index) => (
+                <li key={product.productId} className="py-4 first:pt-0">
+                  <div className="flex items-start gap-3">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#f4f3ef] text-xs font-bold tabular-nums text-muted-foreground">
+                      {String(index + 1).padStart(2, "0")}
                     </span>
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {p.unitsSold} units · {formatINR(p.revenue)}
-                    </span>
-                  </div>
-                  <div className="mt-1 h-1 w-full rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-foreground"
-                      style={{ width: `${Math.max(4, p.pctOfTop)}%` }}
-                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <Link
+                          href={"/admin/products/" + product.productId}
+                          className="truncate text-sm font-semibold hover:underline"
+                        >
+                          {product.name}
+                        </Link>
+                        <span className="shrink-0 text-xs font-semibold tabular-nums">
+                          {formatINR(product.revenue)}
+                        </span>
+                      </div>
+                      <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span>{product.unitsSold} units sold</span>
+                        <span>{Math.round(product.pctOfTop)}% of leader</span>
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#f0efe9]">
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{
+                            width:
+                              String(Math.max(4, product.pctOfTop)) + "%",
+                          }}
+                        />
+                      </div>
+                    </div>
                   </div>
                 </li>
               ))}
             </ol>
           )}
-        </div>
+        </article>
       </section>
 
-      {/* Low stock alerts */}
-      {summary && summary.lowStockItems.length > 0 && (
-        <section className="rounded-lg border border-border p-5">
-          <div className="flex items-baseline justify-between">
-            <h2 className="font-medium">Low-stock alerts</h2>
-            <span className="text-xs text-muted-foreground">
-              Showing {summary.lowStockItems.length} of {summary.lowStockCount}
-            </span>
-          </div>
-          <ul className="mt-3 space-y-2 text-sm">
-            {summary.lowStockItems.map((v) => (
-              <li
-                key={v.variantId}
-                className="flex items-center justify-between gap-3"
-              >
-                <div className="min-w-0">
-                  <Link
-                    href={`/admin/products/${v.product.id}`}
-                    className="truncate font-medium hover:underline"
-                  >
-                    {v.product.name}
-                  </Link>
-                  <p className="text-xs text-muted-foreground">
-                    {[v.size, v.color].filter(Boolean).join(" / ") || v.sku}
-                  </p>
-                </div>
-                <span
-                  className={
-                    v.stock === 0
-                      ? "rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-xs text-red-700"
-                      : "rounded-full bg-orange-500/10 px-2 py-0.5 text-xs text-orange-600 ring-1 ring-inset ring-orange-500/20"
-                  }
-                >
-                  {v.stock === 0 ? "out of stock" : `${v.stock} left`}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <section className="grid gap-6 xl:grid-cols-12">
+        <article className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6 xl:col-span-8">
+          <CardHeader
+            eyebrow="Inventory attention"
+            title="Low-stock watchlist"
+            actionHref="/admin/products"
+            actionLabel="Open inventory"
+          />
 
-      {/* Quick actions */}
-      <section className="rounded-lg border border-border p-5">
-        <h2 className="font-medium">Quick actions</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Link
-            href="/admin/products/new"
-            className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:opacity-90"
-          >
-            New product
-          </Link>
-          <Link
-            href="/admin/products"
-            className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
-          >
-            Manage products
-          </Link>
-          <Link
-            href="/admin/orders"
-            className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
-          >
-            Manage orders
-          </Link>
-          <Link
-            href="/shop"
-            className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
-          >
-            View storefront
-          </Link>
-        </div>
+          {summaryLoading ? (
+            <SkeletonList rows={4} />
+          ) : summaryError || !summary ? (
+            <EmptyState
+              icon={AlertTriangle}
+              title="Inventory status unavailable"
+              description="Refresh the dashboard before making stock decisions."
+            />
+          ) : summary.lowStockItems.length > 0 ? (
+            <div className="mt-5 divide-y divide-black/[0.06]">
+              {summary.lowStockItems.map((variant) => (
+                <div
+                  key={variant.variantId}
+                  className="grid gap-3 py-4 first:pt-0 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center sm:gap-5"
+                >
+                  <div className="min-w-0">
+                    <Link
+                      href={"/admin/products/" + variant.product.id}
+                      className="block truncate text-sm font-semibold hover:underline"
+                    >
+                      {variant.product.name}
+                    </Link>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {[variant.size, variant.color]
+                        .filter(Boolean)
+                        .join(" / ") || "Default variant"}
+                      <span className="mx-2 text-black/20">•</span>
+                      SKU {variant.sku}
+                    </p>
+                  </div>
+                  <span
+                    className={cn(
+                      "w-fit rounded-full px-2.5 py-1 text-xs font-semibold",
+                      variant.stock === 0
+                        ? "bg-red-100 text-red-700"
+                        : "bg-orange-100 text-orange-700",
+                    )}
+                  >
+                    {variant.stock === 0
+                      ? "Out of stock"
+                      : String(variant.stock) + " remaining"}
+                  </span>
+                  <Link
+                    href={"/admin/products/" + variant.product.id}
+                    className="inline-flex w-fit items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+                  >
+                    Update
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              icon={CheckCircle2}
+              title="Inventory looks healthy"
+              description="No variants are currently below the low-stock threshold."
+              positive
+            />
+          )}
+
+          {summary && summary.lowStockCount > summary.lowStockItems.length && (
+            <p className="mt-4 border-t border-black/[0.06] pt-4 text-xs text-muted-foreground">
+              Showing {summary.lowStockItems.length} priority variants from{" "}
+              {summary.lowStockCount} low-stock variants.
+            </p>
+          )}
+        </article>
+
+        <article className="rounded-2xl bg-[#171714] p-5 text-white shadow-[0_18px_55px_rgba(23,23,20,0.18)] sm:p-6 xl:col-span-4">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">
+            Shortcuts
+          </p>
+          <h3 className="mt-2 text-xl font-semibold">Quick actions</h3>
+          <p className="mt-2 text-sm leading-6 text-white/50">
+            Jump straight into the tasks that keep the storefront current.
+          </p>
+
+          <div className="mt-6 space-y-2">
+            <QuickAction
+              href="/admin/products/new"
+              icon={PackagePlus}
+              label="Add a new product"
+              description="Create pricing and variants"
+            />
+            <QuickAction
+              href="/admin/orders"
+              icon={ShoppingBag}
+              label="Process orders"
+              description="Review payment and fulfilment"
+            />
+            <QuickAction
+              href="/admin/homepage"
+              icon={PanelsTopLeft}
+              label="Update homepage"
+              description="Refresh featured content"
+            />
+            <QuickAction
+              href="/"
+              icon={Store}
+              label="Open storefront"
+              description="See the customer experience"
+              external
+            />
+          </div>
+        </article>
       </section>
     </div>
   );
 }
 
-function Stat({
+function StatCard({
   label,
   value,
   hint,
+  icon: Icon,
+  iconClassName,
+  accentClassName,
+  loading,
 }: {
   label: string;
-  value: string;
-  hint?: string;
+  value?: string;
+  hint: string;
+  icon: LucideIcon;
+  iconClassName: string;
+  accentClassName: string;
+  loading: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-border p-5">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="mt-2 text-3xl font-semibold tabular-nums">{value}</p>
-      {hint && (
-        <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
-      )}
+    <article className="relative overflow-hidden rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)]">
+      <span
+        className={cn("absolute inset-x-0 top-0 h-1", accentClassName)}
+      />
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+          {loading ? (
+            <div className="mt-3 h-9 w-28 animate-pulse rounded-lg bg-muted" />
+          ) : (
+            <p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">
+              {value ?? "—"}
+            </p>
+          )}
+        </div>
+        <span
+          className={cn(
+            "grid h-10 w-10 shrink-0 place-items-center rounded-xl",
+            iconClassName,
+          )}
+        >
+          <Icon className="h-5 w-5" />
+        </span>
+      </div>
+      <p className="mt-4 text-xs leading-5 text-muted-foreground">{hint}</p>
+    </article>
+  );
+}
+
+function CardHeader({
+  eyebrow,
+  title,
+  actionHref,
+  actionLabel,
+}: {
+  eyebrow: string;
+  title: string;
+  actionHref: string;
+  actionLabel: string;
+}) {
+  return (
+    <header className="flex items-end justify-between gap-4">
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+          {eyebrow}
+        </p>
+        <h3 className="mt-1.5 text-lg font-semibold tracking-tight">{title}</h3>
+      </div>
+      <Link
+        href={actionHref}
+        className="inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground"
+      >
+        {actionLabel}
+        <ArrowRight className="h-3.5 w-3.5" />
+      </Link>
+    </header>
+  );
+}
+
+function QuickAction({
+  href,
+  icon: Icon,
+  label,
+  description,
+  external = false,
+}: {
+  href: string;
+  icon: LucideIcon;
+  label: string;
+  description: string;
+  external?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      target={external ? "_blank" : undefined}
+      className="group flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.045] p-3 transition hover:border-white/20 hover:bg-white/[0.08]"
+    >
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
+        <Icon className="h-4 w-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-xs font-semibold text-white">{label}</span>
+        <span className="mt-1 block truncate text-[10px] text-white/40">
+          {description}
+        </span>
+      </span>
+      <ArrowRight className="h-4 w-4 text-white/25 transition-transform group-hover:translate-x-0.5 group-hover:text-white/60" />
+    </Link>
+  );
+}
+
+function EmptyState({
+  icon: Icon,
+  title,
+  description,
+  positive = false,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  positive?: boolean;
+}) {
+  return (
+    <div className="mt-6 flex flex-col items-center rounded-2xl border border-dashed border-black/10 bg-[#faf9f6] px-6 py-10 text-center">
+      <span
+        className={cn(
+          "grid h-11 w-11 place-items-center rounded-full",
+          positive
+            ? "bg-emerald-100 text-emerald-700"
+            : "bg-black/[0.05] text-muted-foreground",
+        )}
+      >
+        <Icon className="h-5 w-5" />
+      </span>
+      <p className="mt-3 text-sm font-semibold">{title}</p>
+      <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
+        {description}
+      </p>
     </div>
   );
 }
 
 function SkeletonList({ rows }: { rows: number }) {
   return (
-    <div className="mt-3 space-y-2">
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="h-5 animate-pulse rounded bg-muted" />
+    <div className="mt-6 space-y-4">
+      {Array.from({ length: rows }).map((_, index) => (
+        <div key={index}>
+          <div className="flex items-center justify-between">
+            <div className="h-4 w-28 animate-pulse rounded bg-muted" />
+            <div className="h-4 w-8 animate-pulse rounded bg-muted" />
+          </div>
+          <div className="mt-2 h-2 animate-pulse rounded-full bg-muted" />
+        </div>
       ))}
     </div>
   );

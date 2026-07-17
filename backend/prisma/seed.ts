@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { seedServiceAreas } from "./serviceAreaSeed.js";
 
 const prisma = new PrismaClient();
 
@@ -411,6 +412,8 @@ async function main() {
       console.log(`[seed]   → ${product.name}`);
     }
   }
+
+  await seedServiceAreas(prisma);
 
   const counts = {
     categories: await prisma.category.count(),
