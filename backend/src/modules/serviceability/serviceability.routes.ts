@@ -17,13 +17,6 @@ router.use(
   }),
 );
 router.use(optionalAuth);
-const authenticatedServiceabilityLimiter = rateLimit({
-  keyPrefix: "serviceability",
-  max: 120,
-  windowSec: 60,
-  keyBy: (req) => req.auth?.userId ?? req.ip ?? "unknown",
-});
-router.use(authenticatedServiceabilityLimiter);
 
 const pincodeSchema = z.string().trim().regex(/^\d{6}$/);
 const requestBody = z.object({
