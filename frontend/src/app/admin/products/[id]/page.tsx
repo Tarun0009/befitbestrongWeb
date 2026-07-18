@@ -252,7 +252,7 @@ function CoreFields({ product }: { product: AdminProductDetail }) {
               value={dispatchHint}
               onChange={(e) => setDispatchHint(e.target.value)}
               maxLength={80}
-              placeholder="Dispatches in 24 hrs"
+              placeholder="Optional dispatch information shown to customers"
               className={inputCls}
             />
           </Field>
@@ -653,5 +653,3 @@ function Field({
     </label>
   );
 }
-
-

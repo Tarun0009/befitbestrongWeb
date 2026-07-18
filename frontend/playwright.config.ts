@@ -2,6 +2,10 @@ import { defineConfig, devices } from "@playwright/test";
 
 const frontendUrl = process.env.E2E_FRONTEND_URL ?? "http://localhost:3005";
 const backendUrl = process.env.E2E_BACKEND_URL ?? "http://localhost:4000";
+const firebaseProjectId =
+  process.env.E2E_FIREBASE_PROJECT_ID ?? "demo-befitbestrong-e2e";
+const firebaseAuthEmulatorUrl =
+  process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_URL ?? "http://127.0.0.1:9099";
 const razorpayStubUrl = process.env.E2E_RAZORPAY_URL ?? "http://127.0.0.1:4010";
 const razorpayKeyId = process.env.E2E_RAZORPAY_KEY_ID ?? "rzp_test_e2e_checkout";
 const razorpayKeySecret =
@@ -49,6 +53,22 @@ export default defineConfig({
   ],
   webServer: [
     {
+      name: "firebase-auth-emulator",
+      command: "node node_modules/firebase-tools/lib/bin/firebase.js emulators:start --only auth --project demo-befitbestrong-e2e --config firebase.json",
+      cwd: ".",
+      url: `${firebaseAuthEmulatorUrl}/emulator/v1/projects/${firebaseProjectId}/config`,
+      timeout: 60_000,
+      reuseExistingServer,
+      env: {
+        ...process.env,
+        FIREBASE_CLI_DISABLE_UPDATE_CHECK: "true",
+        GCLOUD_PROJECT: firebaseProjectId,
+        FIREBASE_PROJECT_ID: firebaseProjectId,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+    {
       name: "razorpay-contract-stub",
       command: "node scripts/e2e/checkout/razorpayServer.mjs",
       cwd: "../backend",
@@ -66,7 +86,7 @@ export default defineConfig({
     },
     {
       name: "backend",
-      command: "pnpm start",
+      command: "node dist/server.js",
       cwd: "../backend",
       url: `${backendUrl}/health/ready`,
       timeout: 60_000,
@@ -74,6 +94,10 @@ export default defineConfig({
       env: {
         ...process.env,
         NODE_ENV: "development",
+        APP_ENV: "local",
+        FIREBASE_PROJECT_ID: firebaseProjectId,
+        FIREBASE_AUTH_EMULATOR_HOST: new URL(firebaseAuthEmulatorUrl).host,
+        GCLOUD_PROJECT: firebaseProjectId,
         RAZORPAY_KEY_ID: razorpayKeyId,
         RAZORPAY_KEY_SECRET: razorpayKeySecret,
         RAZORPAY_WEBHOOK_SECRET: razorpayWebhookSecret,
@@ -84,7 +108,7 @@ export default defineConfig({
     },
     {
       name: "frontend",
-      command: "pnpm exec next start -p 3005",
+      command: "node node_modules/next/dist/bin/next start -p 3005",
       cwd: ".",
       url: `${frontendUrl}/health`,
       timeout: 60_000,

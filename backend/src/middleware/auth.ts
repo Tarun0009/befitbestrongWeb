@@ -88,12 +88,14 @@ export async function requireAuth(
       );
     }
 
-    const claimRole = decoded.role as Role | undefined;
+    // The database is authoritative. Custom claims can remain stale for a
+    // short period on already-issued Firebase tokens after a role change.
+    // Never let a stale ADMIN claim bypass a DB demotion.
     req.auth = {
       uid: decoded.uid,
       userId: user.id,
       email: user.email,
-      role: claimRole ?? user.role,
+      role: user.role,
     };
     next();
   } catch (err) {

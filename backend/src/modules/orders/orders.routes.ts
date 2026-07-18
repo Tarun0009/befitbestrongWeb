@@ -3,10 +3,14 @@ import { z } from "zod";
 import { prisma } from "../../config/db.js";
 import { requireAuth } from "../../middleware/auth.js";
 import { optionalAuth } from "../../middleware/optionalAuth.js";
+import { rateLimit } from "../../middleware/rateLimit.js";
 import { HttpError } from "../../middleware/errorHandler.js";
 import { hashGuestToken } from "../checkout/checkout.service.js";
+import { transition } from "./stateMachine.js";
 
 const router = Router();
+
+router.use(rateLimit({ keyPrefix: "orders", max: 60, windowSec: 60 }));
 
 router.get("/", requireAuth, async (req, res, next) => {
   try {
@@ -50,6 +54,44 @@ router.get("/", requireAuth, async (req, res, next) => {
       limit: query.limit,
       totalPages: Math.max(1, Math.ceil(total / query.limit)),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const cancellationBody = z
+  .object({
+    reason: z.string().trim().min(3).max(500).optional(),
+  })
+  .strict();
+
+router.post("/:id/cancel", requireAuth, async (req, res, next) => {
+  try {
+    const id = z.string().cuid().parse(req.params.id);
+    const { reason } = cancellationBody.parse(req.body ?? {});
+    const ownedOrder = await prisma.order.findFirst({
+      where: { id, userId: req.auth!.userId },
+      select: { id: true, status: true },
+    });
+    if (!ownedOrder) {
+      throw new HttpError(404, "order_not_found", "Order not found");
+    }
+    if (!["PENDING", "CONFIRMED"].includes(ownedOrder.status)) {
+      throw new HttpError(
+        409,
+        "cancellation_not_allowed",
+        "This order can no longer be cancelled. Contact support if you need help.",
+      );
+    }
+
+    const order = await transition(prisma, id, "CANCELLED", {
+      actor: {
+        kind: "customer",
+        userId: req.auth!.userId,
+        note: reason ?? "cancelled by customer",
+      },
+    });
+    res.json({ order: { id: order.id, status: order.status } });
   } catch (err) {
     next(err);
   }
@@ -113,6 +155,7 @@ router.get("/:id", optionalAuth, async (req, res, next) => {
           select: {
             id: true,
             carrier: true,
+            provider: true,
             service: true,
             trackingNumber: true,
             trackingUrl: true,
@@ -120,6 +163,7 @@ router.get("/:id", optionalAuth, async (req, res, next) => {
             estimatedDeliveryAt: true,
             shippedAt: true,
             deliveredAt: true,
+            lastSyncedAt: true,
             events: {
               orderBy: { occurredAt: "desc" },
               select: {

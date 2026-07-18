@@ -25,7 +25,10 @@ async function invalidateUserCache(uid: string) {
 
 export async function syncSession(idToken: string): Promise<AuthUser> {
   const admin = getFirebaseAdmin();
-  const decoded = await admin.auth().verifyIdToken(idToken, false);
+  // Session creation is the one place where Firebase's authoritative
+  // revocation state is checked. A fresh login is then allowed to replace our
+  // one-hour hot-path Redis marker left by a previous logout.
+  const decoded = await admin.auth().verifyIdToken(idToken, true);
 
   if (!decoded.email) {
     throw new HttpError(
@@ -57,7 +60,10 @@ export async function syncSession(idToken: string): Promise<AuthUser> {
     );
   }
 
-  await invalidateUserCache(decoded.uid);
+  await Promise.all([
+    redis.del(REVOCATION_KEY(decoded.uid)),
+    invalidateUserCache(decoded.uid),
+  ]);
 
   return {
     id: user.id,

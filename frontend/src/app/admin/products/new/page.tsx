@@ -42,7 +42,7 @@ export default function NewProductPage() {
   const [categoryId, setCategoryId] = useState("");
   const [basePrice, setBasePrice] = useState(""); // rupees
   const [compareAtPrice, setCompareAtPrice] = useState(""); // rupees
-  const [dispatchHint, setDispatchHint] = useState("Dispatches in 24 hrs");
+  const [dispatchHint, setDispatchHint] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [variants, setVariants] = useState<DraftVariant[]>([emptyVariant()]);
   const [error, setError] = useState<string | null>(null);
@@ -129,7 +129,7 @@ export default function NewProductPage() {
             <input type="number" min={0} step="0.01" value={compareAtPrice} onChange={(e) => setCompareAtPrice(e.target.value)} placeholder="Leave empty for no sale ribbon" className={inputCls} />
           </Field>
           <Field label="Dispatch hint">
-            <input value={dispatchHint} onChange={(e) => setDispatchHint(e.target.value)} maxLength={80} placeholder="Dispatches in 24 hrs" className={inputCls} />
+            <input value={dispatchHint} onChange={(e) => setDispatchHint(e.target.value)} maxLength={80} placeholder="Optional dispatch information shown to customers" className={inputCls} />
           </Field>
         </div>
         <Field label="Image URL (optional)">

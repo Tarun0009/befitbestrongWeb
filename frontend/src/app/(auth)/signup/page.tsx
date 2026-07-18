@@ -18,10 +18,18 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [nextPath, setNextPath] = useState("/account");
 
   useEffect(() => {
-    if (status === "authenticated") router.replace("/account");
-  }, [status, router]);
+    const requested = new URLSearchParams(window.location.search).get("next");
+    if (requested?.startsWith("/") && !requested.startsWith("//")) {
+      setNextPath(requested);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (status === "authenticated") router.replace(nextPath);
+  }, [status, nextPath, router]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -40,7 +48,6 @@ export default function SignupPage() {
       if (name) {
         await updateProfile(cred.user, { displayName: name });
       }
-      router.push("/account");
     } catch (err) {
       const message =
         err instanceof Error ? mapFirebaseError(err) : "Signup failed";

@@ -125,7 +125,7 @@ function SuccessContent() {
         ) : null}
 
         <div className="mt-7 flex flex-wrap gap-3">
-          {order?.userId && (
+          {order && (
             <Link
               href={"/account/orders/" + order.id}
               className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted"

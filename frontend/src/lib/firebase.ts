@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
-import { getAuth, type Auth } from "firebase/auth";
+import { connectAuthEmulator, getAuth, type Auth } from "firebase/auth";
 import { publicEnv } from "@/config/publicEnv";
 
 const firebaseConfig = publicEnv.firebase;
@@ -22,6 +22,11 @@ export function getFirebaseApp(): FirebaseApp {
 export function getFirebaseAuth(): Auth {
   if (!auth) {
     auth = getAuth(getFirebaseApp());
+    if (publicEnv.firebaseAuthEmulatorUrl) {
+      connectAuthEmulator(auth, publicEnv.firebaseAuthEmulatorUrl, {
+        disableWarnings: true,
+      });
+    }
   }
   return auth;
 }

@@ -11,6 +11,7 @@ export interface PublicEnvironmentInput {
   firebaseStorageBucket?: string;
   firebaseMessagingSenderId?: string;
   firebaseAppId?: string;
+  firebaseAuthEmulatorUrl?: string;
 }
 
 export interface PublicEnvironment {
@@ -19,6 +20,7 @@ export interface PublicEnvironment {
   siteUrl: string;
   release: string | null;
   firebaseConfigured: boolean;
+  firebaseAuthEmulatorUrl: string | null;
   firebase: {
     apiKey?: string;
     authDomain?: string;
@@ -120,6 +122,30 @@ export function validatePublicEnvironment(
   const firebaseConfigured =
     configuredFirebaseFields.length === firebaseFields.length;
 
+  const rawFirebaseAuthEmulatorUrl = optional(input.firebaseAuthEmulatorUrl);
+  let firebaseAuthEmulatorUrl: string | null = null;
+  if (rawFirebaseAuthEmulatorUrl) {
+    try {
+      const parsed = new URL(rawFirebaseAuthEmulatorUrl);
+      if (
+        appEnvironment !== "local" ||
+        parsed.protocol !== "http:" ||
+        !["localhost", "127.0.0.1", "::1"].includes(parsed.hostname) ||
+        parsed.origin !== rawFirebaseAuthEmulatorUrl
+      ) {
+        errors.add(
+          "NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_URL must be an exact local HTTP origin and is allowed only when NEXT_PUBLIC_APP_ENV=local",
+        );
+      } else {
+        firebaseAuthEmulatorUrl = parsed.origin;
+      }
+    } catch {
+      errors.add(
+        "NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_URL must be a valid absolute URL",
+      );
+    }
+  }
+
   if (
     deployed ||
     (configuredFirebaseFields.length > 0 && !firebaseConfigured)
@@ -143,6 +169,7 @@ export function validatePublicEnvironment(
     siteUrl,
     release: optional(input.releaseSha) ?? null,
     firebaseConfigured,
+    firebaseAuthEmulatorUrl,
     firebase,
   };
 }
@@ -159,4 +186,6 @@ export const publicEnv = validatePublicEnvironment({
   firebaseMessagingSenderId:
     process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   firebaseAppId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  firebaseAuthEmulatorUrl:
+    process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_URL,
 });

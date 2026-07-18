@@ -24,8 +24,9 @@ export function getRuntimeConfigurationStatus(
 ): RuntimeConfigurationStatus {
   const firebase = Boolean(
     environment.FIREBASE_PROJECT_ID &&
-      environment.FIREBASE_CLIENT_EMAIL &&
-      environment.FIREBASE_PRIVATE_KEY,
+      (environment.FIREBASE_AUTH_EMULATOR_HOST ||
+        (environment.FIREBASE_CLIENT_EMAIL &&
+          environment.FIREBASE_PRIVATE_KEY)),
   );
   const payments = Boolean(
     environment.RAZORPAY_KEY_ID &&

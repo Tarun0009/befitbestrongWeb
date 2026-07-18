@@ -63,7 +63,7 @@ function fixtureIdentity(flow: "cod" | "prepaid", id: string) {
 }
 
 async function setupFixture(flow: "cod" | "prepaid", id: string) {
-  await cleanupDatabaseRows(flow, id);
+  const staleUsers = await cleanupDatabaseRows(flow, id);
   const identity = fixtureIdentity(flow, id);
   const pincode = await createServiceArea(identity.city);
 
@@ -83,6 +83,14 @@ async function setupFixture(flow: "cod" | "prepaid", id: string) {
                 sku: `E2E-${flow}-${id}`.toUpperCase(),
                 price: 100_000,
                 stock: 2,
+                subscriptionPlans: {
+                  create: {
+                    name: `E2E ${identity.label} refill plan`,
+                    discountPercent: 10,
+                    allowedFrequencies: [30, 60],
+                    active: true,
+                  },
+                },
               },
             },
           },
@@ -98,7 +106,7 @@ async function setupFixture(flow: "cod" | "prepaid", id: string) {
       throw new Error("Checkout fixture product was not created");
     }
 
-    await clearRedisState();
+    await clearRedisState(undefined, staleUsers);
 
     return {
       flow,
@@ -107,13 +115,15 @@ async function setupFixture(flow: "cod" | "prepaid", id: string) {
       productId: product.id,
       variantId: variant.id,
       productName: product.name,
+      productSlug: product.slug,
       pincode,
       city: identity.city,
       email: identity.contactEmail,
       expectedTotal: variant.price,
     };
   } catch (error) {
-    await cleanupDatabaseRows(flow, id);
+    const createdUsers = await cleanupDatabaseRows(flow, id);
+    await clearRedisState(undefined, createdUsers);
     throw error;
   }
 }
@@ -156,11 +166,11 @@ async function cleanupFixture(
   id: string,
   sid?: string,
 ) {
-  await cleanupDatabaseRows(flow, id);
-  await clearRedisState(sid);
+  const users = await cleanupDatabaseRows(flow, id);
+  await clearRedisState(sid, users);
 }
 
-async function clearRedisState(sid?: string) {
+async function clearRedisState(sid?: string, users: CleanupUser[] = []) {
   const redis = new Redis(
     process.env.REDIS_URL ?? "redis://localhost:6381",
     { lazyConnect: true, maxRetriesPerRequest: 1 },
@@ -175,6 +185,14 @@ async function clearRedisState(sid?: string) {
     if (sid) {
       pipeline.del(`cart:guest:${sid}`, `cart:guest:${sid}:bundles`);
     }
+    for (const user of users) {
+      pipeline.del(
+        `auth:user:${user.firebaseUid}`,
+        `auth:revoked:${user.firebaseUid}`,
+        `cart:user:${user.id}`,
+        `cart:user:${user.id}:bundles`,
+      );
+    }
     await pipeline.exec();
     await redis.quit();
   } catch (error) {
@@ -183,8 +201,17 @@ async function clearRedisState(sid?: string) {
   }
 }
 
+interface CleanupUser {
+  id: string;
+  firebaseUid: string;
+}
+
 async function cleanupDatabaseRows(flow: "cod" | "prepaid", id: string) {
   const identity = fixtureIdentity(flow, id);
+  const users = await prisma.user.findMany({
+    where: { email: identity.contactEmail },
+    select: { id: true, firebaseUid: true },
+  });
   const orderIds = (
     await prisma.order.findMany({
       where: { contactEmail: identity.contactEmail },
@@ -212,6 +239,18 @@ async function cleanupDatabaseRows(flow: "cod" | "prepaid", id: string) {
     ]);
   }
 
+  const userIds = users.map((user) => user.id);
+  if (userIds.length > 0) {
+    await prisma.coupon.deleteMany({
+      where: { assignedUserId: { in: userIds }, source: "LOYALTY" },
+    });
+  }
+  await prisma.user.deleteMany({ where: { email: identity.contactEmail } });
+  await prisma.subscriptionPlan.deleteMany({
+    where: {
+      variant: { product: { slug: identity.productSlug } },
+    },
+  });
   await prisma.product.deleteMany({ where: { slug: identity.productSlug } });
   await prisma.category.deleteMany({ where: { slug: identity.categorySlug } });
   await prisma.serviceArea.deleteMany({ where: { city: identity.city } });
@@ -223,4 +262,6 @@ async function cleanupDatabaseRows(flow: "cod" | "prepaid", id: string) {
       createdAt: { lt: staleBefore },
     },
   });
+
+  return users;
 }

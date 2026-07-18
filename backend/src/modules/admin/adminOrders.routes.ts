@@ -80,7 +80,7 @@ router.get("/orders/:id", async (req, res, next) => {
       where: { id },
       include: {
         items: true,
-        payment: true,
+        payment: { select: { id: true, provider: true, providerOrderId: true, providerPaymentId: true, amount: true, currency: true, status: true, createdAt: true, updatedAt: true } },
         user: { select: { id: true, email: true, name: true } },
         history: { orderBy: { createdAt: "desc" } },
         shipments: {
@@ -94,8 +94,9 @@ router.get("/orders/:id", async (req, res, next) => {
       },
     });
     if (!order) throw new HttpError(404, "order_not_found", "Order not found");
+    const { guestAccessTokenHash: _guestAccessTokenHash, ...safeOrder } = order;
     res.json({
-      order,
+      order: safeOrder,
       refundSummary: summarizeRefundState({
         orderStatus: order.status,
         payment: order.payment,

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { getServerProduct } from "@/lib/catalogServer";
 import {
   compactDescription,
@@ -56,6 +57,7 @@ export default async function ProductSeoLayout({
 }: ProductRouteProps & { children: React.ReactNode }) {
   const { slug } = await params;
   const product = await getServerProduct(slug);
+  if (!product || !product.active) notFound();
 
   return (
     <>
@@ -84,4 +86,3 @@ export function generateStaticParams() {
 
 export const dynamicParams = true;
 export const revalidate = 600;
-

@@ -119,8 +119,17 @@ jobs:
       REDIS_URL: redis://localhost:6379
       CORS_ORIGIN: http://localhost:3005
       FRONTEND_URL: http://localhost:3005
+      NEXT_PUBLIC_APP_ENV: local
       NEXT_PUBLIC_API_URL: http://localhost:4000
       NEXT_PUBLIC_SITE_URL: http://localhost:3005
+      NEXT_PUBLIC_FIREBASE_API_KEY: e2e-api-key
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: demo-befitbestrong-e2e.firebaseapp.com
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: demo-befitbestrong-e2e
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: demo-befitbestrong-e2e.appspot.com
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "1234567890"
+      NEXT_PUBLIC_FIREBASE_APP_ID: 1:1234567890:web:e2e
+      NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_URL: http://127.0.0.1:9099
+      E2E_FIREBASE_PROJECT_ID: demo-befitbestrong-e2e
       NEXT_DISABLE_STANDALONE: "1"
       E2E_BACKEND_URL: http://localhost:4000
       E2E_FRONTEND_URL: http://localhost:3005
