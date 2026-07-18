@@ -153,6 +153,8 @@ router.post("/fulfillment", async (req: Request, res: Response) => {
     return res.status(400).json({ error: { code: "unsupported_event" } });
   }
 
+  let webhookEventId: string;
+  let duplicate = false;
   try {
     const record = await prisma.webhookEvent.create({
       data: {
@@ -162,11 +164,7 @@ router.post("/fulfillment", async (req: Request, res: Response) => {
         payload: payload as object,
       },
     });
-    await courierEventsQueue.add(
-      "process",
-      { webhookEventId: record.id },
-      { jobId: record.id },
-    );
+    webhookEventId = record.id;
   } catch (err: unknown) {
     if (
       err &&
@@ -174,19 +172,57 @@ router.post("/fulfillment", async (req: Request, res: Response) => {
       "code" in err &&
       (err as { code: string }).code === "P2002"
     ) {
-      logger.info(
-        { eventId: normalized.eventId },
-        "courier webhook: duplicate ignored",
+      const existing = await prisma.webhookEvent.findUnique({
+        where: {
+          provider_eventId: {
+            provider: "shiprocket",
+            eventId: normalized.eventId,
+          },
+        },
+        select: { id: true, processedAt: true },
+      });
+      if (!existing) {
+        logger.error(
+          { eventId: normalized.eventId },
+          "courier webhook: duplicate row disappeared",
+        );
+        return res.status(500).json({ error: { code: "internal_error" } });
+      }
+      webhookEventId = existing.id;
+      duplicate = true;
+      if (existing.processedAt) {
+        return res.status(200).json({ deduped: true });
+      }
+    } else {
+      logger.error(
+        { err, eventId: normalized.eventId },
+        "courier webhook: persist failed",
       );
-      return res.status(200).json({ deduped: true });
+      return res.status(500).json({ error: { code: "internal_error" } });
     }
-    logger.error(
-      { err, eventId: normalized.eventId },
-      "courier webhook: persist failed",
-    );
-    return res.status(500).json({ error: { code: "internal_error" } });
   }
 
+  try {
+    await courierEventsQueue.add(
+      "process",
+      { webhookEventId },
+      { jobId: webhookEventId },
+    );
+  } catch (err) {
+    logger.error(
+      { err, eventId: normalized.eventId, webhookEventId },
+      "courier webhook: enqueue failed",
+    );
+    return res.status(503).json({ error: { code: "queue_unavailable" } });
+  }
+
+  if (duplicate) {
+    logger.info(
+      { eventId: normalized.eventId, webhookEventId },
+      "courier webhook: duplicate re-enqueued",
+    );
+    return res.status(200).json({ deduped: true, requeued: true });
+  }
   return res.status(200).json({ received: true });
 });
 

@@ -41,3 +41,6 @@ PLAN.md
 .DS_Store
 Thumbs.db
 Desktop.ini
+# Keep only the root README in version control; other Markdown stays local.
+**/*.md
+!/README.md

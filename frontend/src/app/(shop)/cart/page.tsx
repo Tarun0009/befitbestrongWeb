@@ -194,23 +194,23 @@ export default function CartPage() {
                 <dd>Calculated at checkout</dd>
               </div>
             </dl>
-            {authed ? (
-              <Link
-                href="/checkout"
-                className="mt-4 block w-full rounded-md bg-primary px-4 py-2 text-center text-primary-foreground hover:opacity-90"
-              >
-                Checkout
-              </Link>
-            ) : (
-              <Link
-                href="/login?next=/checkout"
-                className="mt-4 block w-full rounded-md bg-primary px-4 py-2 text-center text-primary-foreground hover:opacity-90"
-              >
-                Log in to checkout
-              </Link>
+            <Link
+              href="/checkout"
+              className="mt-4 block w-full rounded-md bg-primary px-4 py-2 text-center text-primary-foreground hover:opacity-90"
+            >
+              Checkout
+            </Link>
+            {!authed && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Have an account?{" "}
+                <Link href="/login?next=/checkout" className="underline underline-offset-2 hover:text-foreground">
+                  Sign in to merge your cart
+                </Link>
+                .
+              </p>
             )}
             <p className="mt-2 text-xs text-muted-foreground">
-              Payment powered by Razorpay (test mode).
+              Payment methods and delivery availability are confirmed at checkout.
             </p>
           </aside>
         </div>

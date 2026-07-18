@@ -15,6 +15,7 @@ export interface CheckoutFixture {
   productId: string;
   variantId: string;
   productName: string;
+  productSlug: string;
   pincode: string;
   city: string;
   email: string;

@@ -458,6 +458,22 @@ export const ordersApi = createApi({
         { type: "Order", id: arg.id },
       ],
     }),
+    cancelOrder: builder.mutation<
+      { order: { id: string; status: "CANCELLED" } },
+      { id: string; reason?: string }
+    >({
+      query: ({ id, reason }) => ({
+        url: `/orders/${id}/cancel`,
+        method: "POST",
+        body: reason ? { reason } : {},
+      }),
+      invalidatesTags: (_result, _error, arg) => [
+        "Orders",
+        { type: "Order", id: arg.id },
+        "AdminOrders",
+        { type: "AdminOrder", id: arg.id },
+      ],
+    }),
 
     adminListCoupons: builder.query<{ items: AdminCoupon[] }, void>({
       query: () => "/admin/coupons",
@@ -726,6 +742,7 @@ export const {
   useDevCompleteOrderMutation,
   useListOrdersQuery,
   useGetOrderQuery,
+  useCancelOrderMutation,
   useAdminListCouponsQuery,
   useAdminCreateCouponMutation,
   useAdminUpdateCouponMutation,

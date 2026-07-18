@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
+  BadgeCheck,
   ChevronLeft,
   ChevronRight,
   Minus,
@@ -57,6 +58,11 @@ export default function ProductDetailPage() {
 
   const [activeImage, setActiveImage] = useState(0);
   const [mainImageFailed, setMainImageFailed] = useState(false);
+  const [imageZoom, setImageZoom] = useState({
+    active: false,
+    x: 50,
+    y: 50,
+  });
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const lightboxCloseRef = useRef<HTMLButtonElement>(null);
   const lightboxRestoreFocusRef = useRef<HTMLElement | null>(null);
@@ -88,6 +94,7 @@ export default function ProductDetailPage() {
 
   useEffect(() => {
     setMainImageFailed(false);
+    setImageZoom({ active: false, x: 50, y: 50 });
   }, [activeImage]);
 
   useEffect(() => {
@@ -178,6 +185,11 @@ export default function ProductDetailPage() {
   const stock = activeVariant?.stock ?? 0;
   const clampedQty = Math.min(Math.max(qty, 1), Math.max(stock, 1));
   const currentImage = data.images[activeImage] ?? null;
+  const overviewPoints = data.description
+    .split(/(?<=[.!?])\s+/)
+    .map((point) => point.trim())
+    .filter(Boolean)
+    .slice(0, 3);
 
   async function handleAddToCart() {
     if (!activeVariant || stock === 0) return;
@@ -211,6 +223,26 @@ export default function ProductDetailPage() {
     });
   }
 
+  function updateImageZoom(event: React.PointerEvent<HTMLButtonElement>) {
+    if (event.pointerType !== "mouse") return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = Math.min(
+      100,
+      Math.max(0, ((event.clientX - bounds.left) / bounds.width) * 100),
+    );
+    const y = Math.min(
+      100,
+      Math.max(0, ((event.clientY - bounds.top) / bounds.height) * 100),
+    );
+    setImageZoom({ active: true, x, y });
+  }
+
+  function resetImageZoom() {
+    setImageZoom((current) =>
+      current.active ? { ...current, active: false } : current,
+    );
+  }
+
   return (
     <>
       <RecentlyViewedTracker slug={data.slug} />
@@ -232,16 +264,52 @@ export default function ProductDetailPage() {
           </Link>
         </nav>
 
-        <div className="grid gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)] lg:gap-14">
-          <div className="lg:sticky lg:top-36 lg:self-start">
-            <div className="group relative aspect-square overflow-hidden rounded-xl border border-border bg-muted">
+        <div className="grid gap-10 md:grid-cols-[minmax(0,1.02fr)_minmax(320px,0.98fr)] md:gap-8 lg:gap-14">
+          <div className="min-w-0 md:sticky md:top-36 md:self-start">
+            <div className={data.images.length > 1 ? "min-w-0 md:grid md:grid-cols-[76px_minmax(0,1fr)] md:gap-4" : "min-w-0"}>
+              {data.images.length > 1 && (
+                <div className="order-2 mt-3 flex gap-3 overflow-x-auto pb-1 md:order-1 md:mt-0 md:max-h-[32rem] md:flex-col md:overflow-y-auto md:overflow-x-hidden md:overscroll-contain">
+                  {data.images.map((image, index) => (
+                    <button
+                      key={image.id}
+                      type="button"
+                      onClick={() => setActiveImage(index)}
+                      className={
+                        index === activeImage
+                          ? "h-20 w-20 shrink-0 overflow-hidden rounded-xl border-2 border-foreground bg-muted p-1 shadow-sm md:h-[76px] md:w-[76px]"
+                          : "h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-border bg-muted p-1 opacity-75 hover:opacity-100 md:h-[76px] md:w-[76px]"
+                      }
+                      aria-label={"Show image " + (index + 1)}
+                      aria-current={index === activeImage ? "true" : undefined}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={image.url}
+                        alt=""
+                        width={160}
+                        height={160}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-full w-full rounded-lg bg-white object-cover"
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="order-1 min-w-0 md:order-2">
+            <div className="group relative aspect-square overflow-hidden rounded-2xl border border-border bg-muted shadow-sm">
               {currentImage?.url && !mainImageFailed ? (
                 <button
                   type="button"
                   onClick={() => setLightboxOpen(true)}
-                  className="h-full w-full cursor-zoom-in"
+                  onPointerEnter={updateImageZoom}
+                  onPointerMove={updateImageZoom}
+                  onPointerLeave={resetImageZoom}
+                  className="h-full w-full touch-manipulation md:cursor-zoom-in"
                   aria-label="Open larger product image"
                   aria-haspopup="dialog"
+                  aria-describedby="product-image-zoom-help"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
@@ -252,7 +320,11 @@ export default function ProductDetailPage() {
                     loading="eager"
                     fetchPriority="high"
                     decoding="async"
-                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
+                    className="h-full w-full object-cover transition-transform duration-200 ease-out"
+                    style={{
+                      transform: imageZoom.active ? "scale(1.75)" : "scale(1)",
+                      transformOrigin: `${imageZoom.x}% ${imageZoom.y}%`,
+                    }}
                     onError={() => setMainImageFailed(true)}
                   />
                 </button>
@@ -276,16 +348,21 @@ export default function ProductDetailPage() {
               {currentImage?.url && !mainImageFailed && (
                 <span className="pointer-events-none absolute bottom-4 right-4 inline-flex items-center gap-1.5 rounded-md bg-background/90 px-2.5 py-1.5 text-xs font-medium shadow-sm backdrop-blur">
                   <ZoomIn className="h-3.5 w-3.5" />
+                  <span className="hidden md:inline">Hover to zoom · </span>
                   View larger
                 </span>
               )}
+
+              <span id="product-image-zoom-help" className="sr-only">
+                On desktop, move your pointer over the image to zoom into the product. Click to open the full image viewer.
+              </span>
 
               {data.images.length > 1 && (
                 <>
                   <button
                     type="button"
                     onClick={() => moveImage(-1)}
-                    className="absolute left-3 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-background/90 shadow-sm opacity-0 transition-opacity hover:bg-background group-hover:opacity-100 focus:opacity-100"
+                    className="absolute left-3 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full border border-border bg-background/95 shadow-sm transition-colors hover:bg-background focus:bg-background"
                     aria-label="Previous image"
                   >
                     <ChevronLeft className="h-5 w-5" />
@@ -293,7 +370,7 @@ export default function ProductDetailPage() {
                   <button
                     type="button"
                     onClick={() => moveImage(1)}
-                    className="absolute right-3 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-background/90 shadow-sm opacity-0 transition-opacity hover:bg-background group-hover:opacity-100 focus:opacity-100"
+                    className="absolute right-3 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full border border-border bg-background/95 shadow-sm transition-colors hover:bg-background focus:bg-background"
                     aria-label="Next image"
                   >
                     <ChevronRight className="h-5 w-5" />
@@ -301,46 +378,33 @@ export default function ProductDetailPage() {
                 </>
               )}
             </div>
-
-            {data.images.length > 1 && (
-              <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                {data.images.map((image, index) => (
-                  <button
-                    key={image.id}
-                    type="button"
-                    onClick={() => setActiveImage(index)}
-                    className={
-                      index === activeImage
-                        ? "h-20 w-20 shrink-0 overflow-hidden rounded-lg border-2 border-foreground bg-muted"
-                        : "h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border bg-muted opacity-75 hover:opacity-100"
-                    }
-                    aria-label={"Show image " + (index + 1)}
-                    aria-current={index === activeImage ? "true" : undefined}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={image.url}
-                      alt=""
-                      width={160}
-                      height={160}
-                      loading="lazy"
-                      decoding="async"
-                      className="h-full w-full object-cover"
-                    />
-                  </button>
-                ))}
+              <p className="mt-3 text-center text-xs text-muted-foreground md:hidden" aria-live="polite">
+                Image {activeImage + 1} of {data.images.length}
+              </p>
               </div>
-            )}
+            </div>
           </div>
 
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              {data.category.name}
-            </p>
-            <h1 className="mt-3 text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                {data.category.name}
+              </p>
+              {stock > 0 ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-500/20">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+                  In stock
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground ring-1 ring-inset ring-border">
+                  Currently unavailable
+                </span>
+              )}
+            </div>
+            <h1 className="mt-3 text-3xl font-semibold leading-[1.08] tracking-tight sm:text-4xl">
               {data.name}
             </h1>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
+            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
               <a
                 href="#reviews"
                 className="inline-flex items-center gap-2 hover:opacity-80"
@@ -351,6 +415,11 @@ export default function ProductDetailPage() {
                   showValue
                 />
               </a>
+              <span className="text-xs text-muted-foreground">
+                {data.ratingCount > 0
+                  ? data.ratingCount + " rating" + (data.ratingCount === 1 ? "" : "s")
+                  : "Be the first to review"}
+              </span>
               <WishlistButton
                 productId={data.id}
                 productName={data.name}
@@ -358,41 +427,48 @@ export default function ProductDetailPage() {
               />
             </div>
 
-            <div className="mt-5 flex flex-wrap items-baseline gap-x-3 gap-y-2">
-              <p className="text-3xl font-semibold tabular-nums">
-                {formatINR(displayPrice)}
-              </p>
-              {hasSale && (
-                <>
-                  <span className="text-base tabular-nums text-muted-foreground line-through">
-                    {formatINR(data.compareAtPrice!)}
-                  </span>
-                  {discount !== null && discount > 0 && (
-                    <span className="rounded-md bg-primary/15 px-2 py-1 text-xs font-bold text-foreground ring-1 ring-inset ring-primary/40">
-                      {discount}% off
+            <div className="mt-6 rounded-2xl border border-border bg-muted/30 p-5">
+              <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+                <p className="text-3xl font-semibold tabular-nums">
+                  {formatINR(displayPrice)}
+                </p>
+                {hasSale && (
+                  <>
+                    <span className="text-base tabular-nums text-muted-foreground line-through">
+                      {formatINR(data.compareAtPrice!)}
                     </span>
-                  )}
-                </>
-              )}
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Shipping is calculated at checkout.
-            </p>
-
-            {data.dispatchHint && (
-              <p className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary/12 px-3 py-2 text-xs font-semibold text-foreground ring-1 ring-inset ring-primary/30">
-                <Truck className="h-4 w-4 text-primary-foreground" />
-                {data.dispatchHint}
+                    {discount !== null && discount > 0 && (
+                      <span className="rounded-full bg-primary/20 px-2.5 py-1 text-xs font-bold text-foreground ring-1 ring-inset ring-primary/35">
+                        Save {discount}%
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Final delivery charges and available payment methods are shown at checkout.
               </p>
-            )}
+              <div className="mt-4 grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
+                <InfoItem
+                  icon={<Truck className="h-4 w-4" />}
+                  title="Dispatch"
+                  body={data.dispatchHint || "Estimate shown at checkout"}
+                />
+                <InfoItem
+                  icon={<BadgeCheck className="h-4 w-4" />}
+                  title="Secure order"
+                  body="Order status confirmed after payment"
+                />
+              </div>
+            </div>
 
             {data.variants.length > 0 && (
-              <section className="mt-8">
+              <section className="mt-8 rounded-2xl border border-border p-5">
                 <div className="flex items-end justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold">Choose a variant</p>
+                    <p className="text-sm font-semibold">Choose your option</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Availability and price update with your selection.
+                      Select a size, flavour, or colour before adding to cart.
                     </p>
                   </div>
                   {activeVariant && (
@@ -402,7 +478,7 @@ export default function ProductDetailPage() {
                   )}
                 </div>
 
-                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {data.variants.map((variant) => {
                     const isActive = activeVariant?.id === variant.id;
                     const label =
@@ -416,8 +492,8 @@ export default function ProductDetailPage() {
                         aria-pressed={isActive}
                         className={
                           isActive
-                            ? "min-h-14 rounded-lg border-2 border-foreground bg-foreground px-3 py-2 text-left text-background"
-                            : "min-h-14 rounded-lg border border-border px-3 py-2 text-left hover:border-foreground/50 hover:bg-muted"
+                            ? "min-h-14 rounded-xl border-2 border-foreground bg-foreground px-3 py-2 text-left text-background shadow-sm"
+                            : "min-h-14 rounded-xl border border-border px-3 py-2 text-left hover:border-foreground/50 hover:bg-muted"
                         }
                       >
                         <span className="block text-sm font-semibold">{label}</span>
@@ -477,13 +553,13 @@ export default function ProductDetailPage() {
               )}
             </div>
 
-            <div className="mt-5 rounded-xl border border-border bg-muted/25 p-4">
+            <div className="mt-5 rounded-2xl border border-foreground/10 bg-foreground p-4 text-background shadow-lg shadow-foreground/10">
               <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={handleAddToCart}
                   disabled={stock === 0 || adding}
-                  className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-bold text-primary-foreground hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-bold text-primary-foreground hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <ShoppingBag className="h-4 w-4" />
                   {adding
@@ -495,29 +571,30 @@ export default function ProductDetailPage() {
                 <button
                   type="button"
                   onClick={() => router.push("/cart")}
-                  className="min-h-12 rounded-lg border border-border bg-background px-4 text-sm font-semibold hover:bg-muted"
+                  className="min-h-12 rounded-xl border border-background/20 bg-background/10 px-4 text-sm font-semibold text-background hover:bg-background/15"
                 >
                   View cart
                 </button>
               </div>
               {addError && (
-                <p className="mt-3 text-xs font-medium text-red-600" role="alert">
+                <p className="mt-3 text-xs font-medium text-red-300" role="alert">
                   {addError}
                 </p>
               )}
-              {activeVariant && (
-                <StockAlertButton
-                  variantId={activeVariant.id}
-                  productName={data.name}
-                  variantLabel={
-                    [activeVariant.size, activeVariant.color]
-                      .filter(Boolean)
-                      .join(" / ") || activeVariant.sku
-                  }
-                  stock={activeVariant.stock}
-                />
-              )}
             </div>
+
+            {activeVariant && (
+              <StockAlertButton
+                variantId={activeVariant.id}
+                productName={data.name}
+                variantLabel={
+                  [activeVariant.size, activeVariant.color]
+                    .filter(Boolean)
+                    .join(" / ") || activeVariant.sku
+                }
+                stock={activeVariant.stock}
+              />
+            )}
 
             <div className="mt-5">
               <PincodeChecker productId={data.id} source="product" />
@@ -525,32 +602,56 @@ export default function ProductDetailPage() {
 
             <SubscriptionPlanHint variantId={activeVariant?.id ?? null} />
 
-            <div className="mt-5 grid gap-2 sm:grid-cols-3">
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
               <TrustItem
                 icon={<Truck className="h-4 w-4" />}
-                title="Fast dispatch"
-                body={data.dispatchHint || "Packed quickly and tracked."}
+                title="Dispatch information"
+                body={data.dispatchHint || "See the current dispatch estimate at checkout."}
               />
               <TrustItem
                 icon={<RotateCcw className="h-4 w-4" />}
-                title="Easy returns"
-                body="30-day returns on eligible unopened items."
+                title="Returns policy"
+                body="Review the shipping and returns policy before ordering."
               />
               <TrustItem
                 icon={<ShieldCheck className="h-4 w-4" />}
-                title="Secure checkout"
-                body="Protected payment and order processing."
+                title="Checkout status"
+                body="Payment and order status are confirmed before completion."
               />
             </div>
 
-            <section className="mt-10 border-t border-border pt-7">
+            <section className="mt-10 border-t border-border pt-8">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Product details
+                Product overview
               </p>
-              <h2 className="mt-2 text-xl font-semibold">What you need to know</h2>
-              <p className="mt-4 whitespace-pre-line text-sm leading-7 text-muted-foreground">
-                {data.description}
-              </p>
+              <h2 className="mt-2 text-xl font-semibold">Made for your training routine</h2>
+              {overviewPoints.length > 1 ? (
+                <ul className="mt-5 space-y-3">
+                  {overviewPoints.map((point) => (
+                    <li key={point} className="flex gap-3 text-sm leading-6 text-muted-foreground">
+                      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" />
+                      <span>{point}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-4 whitespace-pre-line text-sm leading-7 text-muted-foreground">
+                  {data.description}
+                </p>
+              )}
+              {overviewPoints.length > 1 && (
+                <details className="group mt-5 rounded-xl border border-border px-4">
+                  <summary className="cursor-pointer list-none py-3 text-sm font-semibold marker:hidden">
+                    <span className="flex items-center justify-between gap-3">
+                      Full product description
+                      <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
+                    </span>
+                  </summary>
+                  <p className="whitespace-pre-line border-t border-border pb-4 pt-4 text-sm leading-7 text-muted-foreground">
+                    {data.description}
+                  </p>
+                </details>
+              )}
             </section>
           </div>
         </div>
@@ -608,6 +709,35 @@ export default function ProductDetailPage() {
           >
             <X className="h-5 w-5" />
           </button>
+          {data.images.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  moveImage(-1);
+                }}
+                className="absolute left-3 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20 sm:left-6"
+                aria-label="Previous product image"
+              >
+                <ChevronLeft className="h-6 w-6" />
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  moveImage(1);
+                }}
+                className="absolute right-3 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20 sm:right-6"
+                aria-label="Next product image"
+              >
+                <ChevronRight className="h-6 w-6" />
+              </button>
+              <span className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white backdrop-blur">
+                {activeImage + 1} / {data.images.length}
+              </span>
+            </>
+          )}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={currentImage.url}
@@ -621,6 +751,28 @@ export default function ProductDetailPage() {
         </div>
       )}
     </>
+  );
+}
+
+function InfoItem({
+  icon,
+  title,
+  body,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+}) {
+  return (
+    <div className="flex min-w-0 gap-2.5">
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/20 text-primary-emphasis">
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <p className="text-xs font-semibold">{title}</p>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">{body}</p>
+      </div>
+    </div>
   );
 }
 

@@ -72,6 +72,7 @@ const baseEnvSchema = z.object({
   FIREBASE_PROJECT_ID: emptyToUndefined(z.string().min(1).optional()),
   FIREBASE_CLIENT_EMAIL: emptyToUndefined(z.string().email().optional()),
   FIREBASE_PRIVATE_KEY: emptyToUndefined(z.string().min(1).optional()),
+  FIREBASE_AUTH_EMULATOR_HOST: emptyToUndefined(z.string().min(1).optional()),
 
   RAZORPAY_KEY_ID: emptyToUndefined(z.string().min(1).optional()),
   RAZORPAY_KEY_SECRET: emptyToUndefined(z.string().min(1).optional()),
@@ -184,6 +185,37 @@ function isLocalHostname(hostname: string) {
 export const backendEnvSchema = baseEnvSchema.superRefine((data, context) => {
   const deployed = data.APP_ENV !== "local";
   const production = data.APP_ENV === "production";
+  const firebaseEmulator = Boolean(data.FIREBASE_AUTH_EMULATOR_HOST);
+
+  if (firebaseEmulator) {
+    if (deployed) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["FIREBASE_AUTH_EMULATOR_HOST"],
+        message: "Firebase Auth Emulator is allowed only when APP_ENV=local",
+      });
+    }
+    if (
+      !/^(localhost|127\.0\.0\.1):\d+$/.test(
+        data.FIREBASE_AUTH_EMULATOR_HOST!,
+      )
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["FIREBASE_AUTH_EMULATOR_HOST"],
+        message:
+          "FIREBASE_AUTH_EMULATOR_HOST must be a loopback host and port without a protocol",
+      });
+    }
+    if (!data.FIREBASE_PROJECT_ID?.startsWith("demo-")) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["FIREBASE_PROJECT_ID"],
+        message:
+          "Firebase Auth Emulator requires a demo- project ID to prevent accidental production access",
+      });
+    }
+  }
 
   if (deployed && data.NODE_ENV !== "production") {
     context.addIssue({
@@ -250,13 +282,15 @@ export const backendEnvSchema = baseEnvSchema.superRefine((data, context) => {
     });
   }
 
-  validateGroup(
-    data,
-    context,
-    ["FIREBASE_PROJECT_ID", "FIREBASE_CLIENT_EMAIL", "FIREBASE_PRIVATE_KEY"],
-    "Firebase Admin",
-    deployed,
-  );
+  if (!firebaseEmulator) {
+    validateGroup(
+      data,
+      context,
+      ["FIREBASE_PROJECT_ID", "FIREBASE_CLIENT_EMAIL", "FIREBASE_PRIVATE_KEY"],
+      "Firebase Admin",
+      deployed,
+    );
+  }
   validateGroup(
     data,
     context,

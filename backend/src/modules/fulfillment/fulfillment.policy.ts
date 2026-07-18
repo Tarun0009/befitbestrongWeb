@@ -1,4 +1,52 @@
 import { z } from "zod";
+import type { ShipmentStatus } from "@prisma/client";
+
+/**
+ * Courier providers retry and occasionally deliver scans out of order. Keep
+ * the canonical shipment state monotonic while still retaining every scan in
+ * ShipmentEvent for support/audit purposes. Delivery failures may recover
+ * into another attempt; delivered, returned and cancelled are terminal.
+ */
+export const SHIPMENT_TRANSITIONS: Record<
+  ShipmentStatus,
+  readonly ShipmentStatus[]
+> = {
+  LABEL_CREATED: [
+    "PICKED_UP",
+    "IN_TRANSIT",
+    "OUT_FOR_DELIVERY",
+    "DELIVERED",
+    "DELIVERY_FAILED",
+    "CANCELLED",
+  ],
+  PICKED_UP: ["IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED", "DELIVERY_FAILED"],
+  IN_TRANSIT: [
+    "OUT_FOR_DELIVERY",
+    "DELIVERED",
+    "DELIVERY_FAILED",
+    "RTO_IN_TRANSIT",
+  ],
+  OUT_FOR_DELIVERY: ["DELIVERED", "DELIVERY_FAILED"],
+  DELIVERY_FAILED: [
+    "PICKED_UP",
+    "IN_TRANSIT",
+    "OUT_FOR_DELIVERY",
+    "DELIVERED",
+    "RTO_IN_TRANSIT",
+    "RETURNED",
+  ],
+  RTO_IN_TRANSIT: ["RETURNED"],
+  DELIVERED: [],
+  RETURNED: [],
+  CANCELLED: [],
+} as const;
+
+export function canShipmentTransition(
+  from: ShipmentStatus,
+  to: ShipmentStatus,
+): boolean {
+  return from === to || SHIPMENT_TRANSITIONS[from].includes(to);
+}
 
 const httpUrl = z
   .string()

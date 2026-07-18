@@ -6,8 +6,10 @@ import { CartDrawer } from "@/components/CartDrawer";
 import { AnnouncementBar } from "@/components/AnnouncementBar";
 import { RewardsTicker } from "@/components/RewardsTicker";
 import { Footer } from "@/components/Footer";
+import { jsonLd } from "@/lib/seo";
 import { StorefrontOnly } from "@/components/StorefrontOnly";
 import {
+  absoluteSiteUrl,
   DEFAULT_SHARE_IMAGE,
   getSiteUrl,
   SITE_DESCRIPTION,
@@ -88,6 +90,33 @@ export default function RootLayout({
   return (
     <html lang="en-IN">
       <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: jsonLd({
+              "@context": "https://schema.org",
+              "@graph": [
+                {
+                  "@type": "Organization",
+                  "@id": `${absoluteSiteUrl("/")}#organization`,
+                  name: SITE_NAME,
+                  url: absoluteSiteUrl("/"),
+                },
+                {
+                  "@type": "WebSite",
+                  "@id": `${absoluteSiteUrl("/")}#website`,
+                  name: SITE_NAME,
+                  url: absoluteSiteUrl("/"),
+                  potentialAction: {
+                    "@type": "SearchAction",
+                    target: `${absoluteSiteUrl("/shop")}?q={search_term_string}`,
+                    "query-input": "required name=search_term_string",
+                  },
+                },
+              ],
+            }),
+          }}
+        />
         <link rel="preconnect" href="https://images.unsplash.com" />
         <link rel="dns-prefetch" href="https://images.unsplash.com" />
       </head>

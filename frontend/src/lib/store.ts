@@ -17,6 +17,7 @@ import { discoveryApi } from "@/features/discovery/discoveryApi";
 import { serviceabilityApi } from "@/features/serviceability/serviceabilityApi";
 import { adminNotificationsApi } from "@/features/adminNotifications/adminNotificationsApi";
 import { emailOutboxApi } from "@/features/emailOutbox/emailOutboxApi";
+import { adminCustomersApi } from "@/features/adminCustomers/adminCustomersApi";
 
 export const makeStore = () => {
   const store = configureStore({
@@ -38,6 +39,7 @@ export const makeStore = () => {
       [serviceabilityApi.reducerPath]: serviceabilityApi.reducer,
       [adminNotificationsApi.reducerPath]: adminNotificationsApi.reducer,
       [emailOutboxApi.reducerPath]: emailOutboxApi.reducer,
+      [adminCustomersApi.reducerPath]: adminCustomersApi.reducer,
     },
     middleware: (getDefault) =>
       getDefault().concat(
@@ -56,6 +58,7 @@ export const makeStore = () => {
         serviceabilityApi.middleware,
         adminNotificationsApi.middleware,
         emailOutboxApi.middleware,
+        adminCustomersApi.middleware,
       ),
   });
   setupListeners(store.dispatch);

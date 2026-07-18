@@ -1,38 +1,111 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useGetOrderQuery, type OrderStatus } from "@/lib/ordersApi";
+import { useAppSelector } from "@/lib/hooks";
+import {
+  useCancelOrderMutation,
+  useGetOrderQuery,
+  type OrderStatus,
+} from "@/lib/ordersApi";
 import { formatINR } from "@/lib/format";
-import { RequireAuth } from "@/features/auth/RequireAuth";
 import { ReviewComposer } from "@/features/reviews/ReviewComposer";
 import { SubscriptionEnrollButton } from "@/features/subscriptions/SubscriptionEnrollButton";
 
 export default function OrderDetailPage() {
-  return (
-    <RequireAuth>
-      <Inner />
-    </RequireAuth>
-  );
+  return <Inner />;
 }
 
 function Inner() {
   const params = useParams<{ id: string }>();
-  const { data, isLoading, error } = useGetOrderQuery({ id: params.id }, {
-    skip: !params.id,
-  });
+  const authStatus = useAppSelector((state) => state.auth.status);
+  const [guestAccessToken, setGuestAccessToken] = useState<string | undefined>();
+  const [guestAccessChecked, setGuestAccessChecked] = useState(false);
+  const orderId = Array.isArray(params.id) ? params.id[0] : params.id;
 
-  if (error) {
+  useEffect(() => {
+    if (orderId && typeof window !== "undefined") {
+      setGuestAccessToken(
+        window.sessionStorage.getItem("guest-order:" + orderId) ?? undefined,
+      );
+    }
+    setGuestAccessChecked(true);
+  }, [orderId]);
+
+  const canAccess = authStatus === "authenticated" || Boolean(guestAccessToken);
+  const { data, isLoading, isFetching, error, refetch } = useGetOrderQuery(
+    { id: orderId, guestAccessToken },
+    {
+      skip: !orderId || !guestAccessChecked || !canAccess,
+      pollingInterval: 30000,
+      refetchOnFocus: true,
+      refetchOnReconnect: true,
+    },
+  );
+  const [cancelOrder, { isLoading: cancelling }] = useCancelOrderMutation();
+  const [cancellationOpen, setCancellationOpen] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState("");
+  const [cancellationError, setCancellationError] = useState<string | null>(
+    null,
+  );
+
+  if (!guestAccessChecked || authStatus === "idle" || authStatus === "loading") {
     return (
       <main className="mx-auto max-w-5xl px-6 py-16">
-        <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
-          Order not found.
-        </div>
+        <div className="h-40 animate-pulse rounded-lg bg-muted" aria-label="Loading order" />
+      </main>
+    );
+  }
+
+  if (!canAccess) {
+    return (
+      <main className="mx-auto max-w-5xl px-6 py-16">
+        <section className="rounded-xl border border-border p-6">
+          <h1 className="text-xl font-semibold">Sign in to view this order</h1>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            This order is not available in this browser session. Sign in to view your account orders, or reopen the confirmation link from the checkout tab.
+          </p>
+          <Link
+            href={`/login?next=${encodeURIComponent(`/account/orders/${orderId}`)}`}
+            className="mt-5 inline-flex rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
+          >
+            Sign in
+          </Link>
+        </section>
+      </main>
+    );
+  }
+
+  if (error) {
+    const status =
+      typeof error === "object" && error !== null && "status" in error
+        ? (error as { status?: number | string }).status
+        : undefined;
+    const message =
+      status === 404
+        ? "We could not find this order. It may have been removed or the link may be incorrect."
+        : "We could not load this order right now. Check your connection and try again.";
+    return (
+      <main className="mx-auto max-w-5xl px-6 py-16">
+        <section className="rounded-xl border border-red-300 bg-red-50 p-5 text-sm text-red-700" role="alert">
+          <p>{message}</p>
+          {status !== 404 && (
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+              className="mt-4 rounded-md border border-red-300 px-3 py-1.5 text-xs font-semibold hover:bg-red-100 disabled:opacity-60"
+            >
+              {isFetching ? "Retrying…" : "Try again"}
+            </button>
+          )}
+        </section>
         <Link
-          href="/account/orders"
+          href={authStatus === "authenticated" ? "/account/orders" : "/"}
           className="mt-4 inline-block text-sm underline underline-offset-4"
         >
-          ← All orders
+          {authStatus === "authenticated" ? "← All orders" : "← Home"}
         </Link>
       </main>
     );
@@ -47,6 +120,25 @@ function Inner() {
   }
 
   const { order } = data;
+  const cancellationAllowed = authStatus === "authenticated" && ["PENDING", "CONFIRMED"].includes(order.status);
+
+  async function handleCancellation() {
+    setCancellationError(null);
+    try {
+      await cancelOrder({
+        id: order.id,
+        reason: cancellationReason.trim() || undefined,
+      }).unwrap();
+      setCancellationOpen(false);
+    } catch (caught) {
+      const apiError = caught as {
+        data?: { error?: { message?: string } };
+      };
+      setCancellationError(
+        apiError.data?.error?.message ?? "Could not cancel this order.",
+      );
+    }
+  }
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-16">
@@ -116,18 +208,20 @@ function Inner() {
                       {formatINR(line.subtotal)}
                     </p>
                   </div>
-                  {order.status === "DELIVERED" && (
+                  {authStatus === "authenticated" && order.status === "DELIVERED" && (
                     <ReviewComposer
                       productSlug={line.productSnapshot.slug}
                       compact
                     />
                   )}
-                  <SubscriptionEnrollButton
-                    orderId={order.id}
-                    variantId={line.variantId}
-                    orderStatus={order.status}
-                    maxQuantity={line.quantity}
-                  />
+                  {authStatus === "authenticated" && (
+                    <SubscriptionEnrollButton
+                      orderId={order.id}
+                      variantId={line.variantId}
+                      orderStatus={order.status}
+                      maxQuantity={line.quantity}
+                    />
+                  )}
                 </div>
               </li>
             ))}
@@ -135,9 +229,77 @@ function Inner() {
         </section>
 
         <aside className="space-y-6">
-          {order.shipments?.length > 0 && (
+          {cancellationAllowed && (
             <section className="rounded-lg border border-border p-5">
-              <h2 className="font-medium">Track shipment</h2>
+              <h2 className="font-medium">Cancel order</h2>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                Cancellation is available before fulfillment begins. Reserved
+                stock and any standard coupon usage are restored automatically.
+              </p>
+              {!cancellationOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setCancellationOpen(true)}
+                  className="mt-4 rounded-lg border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+                >
+                  Cancel order
+                </button>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  <label className="block text-xs font-medium">
+                    <span>Reason (optional)</span>
+                    <textarea
+                      value={cancellationReason}
+                      onChange={(event) =>
+                        setCancellationReason(event.target.value)
+                      }
+                      maxLength={500}
+                      rows={3}
+                      className="mt-1.5 w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                  </label>
+                  {cancellationError && (
+                    <p
+                      role="alert"
+                      className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700"
+                    >
+                      {cancellationError}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleCancellation}
+                      disabled={cancelling}
+                      className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                    >
+                      {cancelling ? "Cancelling…" : "Confirm cancellation"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCancellationOpen(false);
+                        setCancellationError(null);
+                      }}
+                      disabled={cancelling}
+                      className="rounded-lg border border-border px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                    >
+                      Keep order
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {order.shipments?.length > 0 ? (
+            <section className="rounded-lg border border-border p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="font-medium">Track shipment</h2>
+                <button type="button" onClick={() => void refetch()} disabled={isFetching} className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium disabled:opacity-50">
+                  {isFetching ? "Refreshing…" : "Refresh status"}
+                </button>
+              </div>
               <div className="mt-3 space-y-4">
                 {order.shipments.map((shipment) => (
                   <article
@@ -158,6 +320,16 @@ function Inner() {
                         {formatShipmentStatus(shipment.status)}
                       </span>
                     </div>
+                    {shipment.lastSyncedAt && (
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        Carrier update received {new Date(shipment.lastSyncedAt).toLocaleString("en-IN")}
+                      </p>
+                    )}
+                    {shipment.lastSyncedAt && Date.now() - new Date(shipment.lastSyncedAt).getTime() > 6 * 60 * 60 * 1000 && (
+                      <p role="status" className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        The carrier has not sent a recent update. We are checking again automatically.
+                      </p>
+                    )}
                     {shipment.estimatedDeliveryAt && (
                       <p className="mt-3 text-xs text-muted-foreground">
                         Estimated delivery{" "}
@@ -205,7 +377,17 @@ function Inner() {
                 ))}
               </div>
             </section>
-          )}
+          ) : ["PAID", "CONFIRMED", "SHIPPED"].includes(order.status) ? (
+            <section className="rounded-lg border border-border p-5">
+              <h2 className="font-medium">Track shipment</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Your order is being prepared. Tracking details will appear here as soon as a carrier label is created.
+              </p>
+              <button type="button" onClick={() => void refetch()} disabled={isFetching} className="mt-4 rounded-md border border-border px-3 py-2 text-xs font-medium disabled:opacity-50">
+                {isFetching ? "Refreshing…" : "Refresh status"}
+              </button>
+            </section>
+          ) : null}
 
           <section className="rounded-lg border border-border p-5">
             <h2 className="font-medium">Shipping</h2>

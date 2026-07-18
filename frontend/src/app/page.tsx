@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   useGetCategoriesQuery,
   useGetProductsQuery,
@@ -21,7 +21,6 @@ const RecentlyViewedRail = dynamic(
 );
 
 export default function HomePage() {
-  const [newsletterMessage, setNewsletterMessage] = useState<string | null>(null);
   const { data: config, isLoading: configLoading } = useGetSiteConfigQuery();
   const { data: cats } = useGetCategoriesQuery();
   const { data: recent, isLoading: productsLoading } = useGetProductsQuery({ limit: 12 });
@@ -202,54 +201,25 @@ export default function HomePage() {
         <div className="grid gap-6 border-y border-border py-10 lg:grid-cols-[1fr_420px] lg:items-center">
           <div>
             <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              Newsletter
+              Stay informed
             </p>
             <h2 className="mt-2 text-3xl font-semibold tracking-tight">
-              Drops, training notes, and honest reviews.
+              Clear updates, when they are ready.
             </h2>
             <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
-              One useful email a week. No spam, no mystery blends, no fake urgency.
+              Marketing email capture is not enabled yet. Order and account updates remain available from your account and checkout flow.
             </p>
           </div>
-          <div>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                setNewsletterMessage(
-                  "Thanks — newsletter delivery will be available soon.",
-                );
-              }}
-              className="flex flex-col gap-3 sm:flex-row"
-              aria-describedby={newsletterMessage ? "newsletter-status" : undefined}
+          <div className="rounded-lg border border-border bg-muted/35 p-5">
+            <p className="text-sm leading-6 text-muted-foreground">
+              Looking for help with delivery, an order, or a return?
+            </p>
+            <Link
+              href="/support"
+              className="mt-4 inline-flex rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90"
             >
-              <label htmlFor="newsletter-email" className="sr-only">
-                Email address
-              </label>
-              <input
-                id="newsletter-email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                placeholder="you@example.com"
-                className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
-              />
-              <button
-                type="submit"
-                className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90"
-              >
-                Subscribe
-              </button>
-            </form>
-            {newsletterMessage && (
-              <p
-                id="newsletter-status"
-                className="mt-2 text-xs text-muted-foreground"
-                role="status"
-              >
-                {newsletterMessage}
-              </p>
-            )}
+              Visit customer support
+            </Link>
           </div>
         </div>
       </section>
@@ -289,10 +259,10 @@ const CATEGORY_TILES = [
 ];
 
 const VALUE_PROPS = [
-  { mark: "24", title: "Fast dispatch", body: "Most orders move within 24 hours." },
-  { mark: "MRP", title: "Clean pricing", body: "Sale cards show real MRP and savings." },
-  { mark: "QC", title: "Batch checked", body: "Sealed, expiry verified, and packed tight." },
-  { mark: "30", title: "30-day returns", body: "Unopened products return without drama." },
+  { mark: "PIN", title: "Delivery checked", body: "Confirm coverage for your six-digit PIN code." },
+  { mark: "₹", title: "Clear pricing", body: "Review the current price and applicable offer at checkout." },
+  { mark: "STOCK", title: "Live availability", body: "Product stock is checked before an order is confirmed." },
+  { mark: "ORD", title: "Order visibility", body: "Follow status and available actions from your account." },
 ];
 
 const SPOTLIGHT_BULLETS = [
@@ -309,7 +279,3 @@ const SPOTLIGHT_BULLETS = [
     body: "Apparel is judged by movement, sweat, and repeat washing before the mirror.",
   },
 ];
-
-
-
-

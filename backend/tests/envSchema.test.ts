@@ -39,6 +39,31 @@ describe("backend environment policy", () => {
     expect(result.success).toBe(false);
   });
 
+  it("allows a loopback Firebase Auth Emulator only with a demo project locally", () => {
+    expect(
+      backendEnvSchema.safeParse({
+        ...localBase,
+        FIREBASE_PROJECT_ID: "demo-befitbestrong-e2e",
+        FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9099",
+      }).success,
+    ).toBe(true);
+
+    expect(
+      backendEnvSchema.safeParse({
+        ...localBase,
+        FIREBASE_PROJECT_ID: "real-project",
+        FIREBASE_AUTH_EMULATOR_HOST: "firebase.example.com:9099",
+      }).success,
+    ).toBe(false);
+
+    expect(
+      backendEnvSchema.safeParse({
+        ...deployedBase,
+        FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9099",
+      }).success,
+    ).toBe(false);
+  });
+
   it("requires auth and payments for deployed environments", () => {
     const result = backendEnvSchema.safeParse({
       ...localBase,

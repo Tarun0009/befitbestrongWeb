@@ -198,7 +198,7 @@ export async function bookOrderWithCourier(
             provider: provider.key,
             providerOrderId: booking!.providerOrderId,
             providerShipmentId: booking!.providerShipmentId,
-            trackingUrl: "https://www.shiprocket.in/shipment-tracking/",
+            trackingUrl: null,
             status: "LABEL_CREATED",
             shippedAt: null,
             createdById: adminUserId,

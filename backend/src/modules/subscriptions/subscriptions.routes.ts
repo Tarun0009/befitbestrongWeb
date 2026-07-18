@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../../middleware/auth.js";
+import { rateLimit } from "../../middleware/rateLimit.js";
 import {
   controlSubscription,
   enrollSubscription,
@@ -8,6 +9,7 @@ import {
 } from "./subscription.service.js";
 
 const router = Router();
+router.use(rateLimit({ keyPrefix: "subscriptions", max: 60, windowSec: 60 }));
 router.use(requireAuth);
 
 router.get("/", async (req, res, next) => {

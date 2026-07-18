@@ -4,7 +4,7 @@ import { prisma } from "../../config/db.js";
 import { HttpError } from "../../middleware/errorHandler.js";
 import { transition } from "../orders/stateMachine.js";
 import type { NormalizedCourierEvent } from "./courier.types.js";
-import { normalizeShiprocketStatus } from "./fulfillment.policy.js";
+import { canShipmentTransition, normalizeShiprocketStatus } from "./fulfillment.policy.js";
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -124,23 +124,48 @@ async function applyEventInTransaction(
   });
   if (existing) return;
 
-  await tx.shipment.update({
+  const current = await tx.shipment.findUnique({
     where: { id: shipmentId },
-    data: {
-      status: event.status,
-      lastSyncedAt: new Date(),
-      syncError: null,
-      ...(event.estimatedDeliveryAt
-        ? { estimatedDeliveryAt: event.estimatedDeliveryAt }
-        : {}),
-      ...(["PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY"].includes(event.status)
-        ? { shippedAt: event.occurredAt }
-        : {}),
-      ...(event.status === "DELIVERED"
-        ? { deliveredAt: event.occurredAt }
-        : {}),
-    },
+    select: { status: true },
   });
+  if (!current) return;
+
+  // Providers can deliver scans out of order. A late scan is still persisted
+  // below for support/audit, but it must never regress the canonical state.
+  const latestEvent = await tx.shipmentEvent.findFirst({
+    where: { shipmentId },
+    orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+    select: { occurredAt: true },
+  });
+  const staleEvent =
+    latestEvent !== null && event.occurredAt < latestEvent.occurredAt;
+  const shouldAdvance =
+    !staleEvent && canShipmentTransition(current.status, event.status);
+
+  const update: Prisma.ShipmentUpdateManyMutationInput = {
+    lastSyncedAt: new Date(),
+    syncError: null,
+  };
+  if (shouldAdvance) {
+    update.status = event.status;
+    if (event.estimatedDeliveryAt) {
+      update.estimatedDeliveryAt = event.estimatedDeliveryAt;
+    }
+    if (["PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY"].includes(event.status)) {
+      update.shippedAt = event.occurredAt;
+    }
+    if (event.status === "DELIVERED") {
+      update.deliveredAt = event.occurredAt;
+    }
+  }
+
+  // Optimistic status predicate prevents two concurrent webhook workers from
+  // applying a stale status after another worker has already advanced it.
+  await tx.shipment.updateMany({
+    where: { id: shipmentId, status: current.status },
+    data: update,
+  });
+
   await tx.shipmentEvent.create({
     data: {
       shipmentId,
