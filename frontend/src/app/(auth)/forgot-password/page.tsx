@@ -41,7 +41,7 @@ export default function ForgotPasswordPage() {
         <h1 className="mt-5 text-2xl font-semibold">Check your inbox</h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
           If an account exists for <span className="font-medium text-foreground">{sentTo}</span>,
-          Firebase has sent it a password-reset link.
+          we’ve sent a password-reset link.
         </p>
         <p className="mt-3 text-xs leading-5 text-muted-foreground">
           Check your spam folder if it does not arrive within a few minutes.
@@ -122,7 +122,7 @@ function mapFirebaseError(error: Error): string {
     return "Too many attempts. Please wait a moment and try again.";
   }
   if (message.includes("Firebase env vars are missing")) {
-    return "Firebase authentication is not configured.";
+    return "Password recovery is temporarily unavailable. Please try again later.";
   }
   return "We could not send the reset email. Please try again.";
 }

@@ -20,7 +20,7 @@ export default function PrivacyPage() {
           bullets: [
             "Account details such as name, email, authentication identifiers, and profile information.",
             "Order, address, payment-status, delivery, wishlist, rewards, and subscription records needed to provide the service.",
-            "PIN-code checks and area requests used to determine coverage and plan future service areas.",
+            "PIN-code checks used to confirm delivery estimates and payment options for an address.",
             "Technical, security, and diagnostic information needed to keep the platform reliable and prevent abuse.",
           ],
         },

@@ -9,7 +9,6 @@ import {
   ExternalLink,
   Gift,
   LayoutDashboard,
-  MapPinned,
   MailCheck,
   Menu,
   Package,
@@ -85,12 +84,6 @@ const navGroups: NavGroup[] = [
         label: "Fulfillment",
         description: "Operate AWBs, pickups, shipment tracking, and exceptions.",
         icon: Truck,
-      },
-      {
-        href: "/admin/service-areas",
-        label: "Service areas",
-        description: "Control delivery PINs, COD policy, and expansion demand.",
-        icon: MapPinned,
       },
       {
         href: "/admin/bundles",

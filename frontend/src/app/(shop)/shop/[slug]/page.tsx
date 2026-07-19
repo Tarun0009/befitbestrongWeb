@@ -597,7 +597,7 @@ export default function ProductDetailPage() {
             )}
 
             <div className="mt-5">
-              <PincodeChecker productId={data.id} source="product" />
+              <PincodeChecker />
             </div>
 
             <SubscriptionPlanHint variantId={activeVariant?.id ?? null} />

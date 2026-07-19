@@ -1,16 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Heart,
   LayoutDashboard,
+  LogOut,
   PackageCheck,
   Settings2,
   Sparkles,
   Trophy,
   UserRound,
 } from "lucide-react";
+import { signOut } from "firebase/auth";
+import { getFirebaseAuth } from "@/lib/firebase";
+import { useLogoutMutation } from "@/lib/authApi";
+import { cartApi } from "@/lib/cartApi";
+import { wishlistApi } from "@/features/wishlist/wishlistApi";
+import { useAppDispatch } from "@/lib/hooks";
 import { useAppSelector } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
 
@@ -29,9 +36,28 @@ function activeRoute(pathname: string, href: string) {
 
 export function AccountShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const dispatch = useAppDispatch();
+  const [logout, { isLoading: loggingOut }] = useLogoutMutation();
   const user = useAppSelector((state) => state.auth.user);
   const displayName = user?.name?.trim() || user?.email?.split("@")[0] || "Guest order";
   const initial = displayName.charAt(0).toUpperCase();
+
+  async function handleLogout() {
+    try {
+      await logout().unwrap();
+    } catch {
+      // Continue with Firebase sign-out even if the server session is already gone.
+    }
+    try {
+      await signOut(getFirebaseAuth());
+    } catch {
+      // Firebase may be unavailable in a local guest-order view.
+    }
+    dispatch(cartApi.util.invalidateTags(["Cart"]));
+    dispatch(wishlistApi.util.resetApiState());
+    router.push("/");
+  }
 
   return (
     <div className="min-h-screen bg-[#f7f6f2]">
@@ -47,9 +73,22 @@ export function AccountShell({ children }: { children: React.ReactNode }) {
                 <span className="mt-1 block truncate text-sm font-semibold sm:text-base">{displayName}</span>
               </span>
             </Link>
-            <Link href="/shop" className="hidden rounded-xl border border-white/15 px-3.5 py-2 text-xs font-semibold text-white/75 transition hover:border-white/30 hover:bg-white/5 hover:text-white sm:inline-flex">
-              Continue shopping
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link href="/shop" className="hidden rounded-xl border border-white/15 px-3.5 py-2 text-xs font-semibold text-white/75 transition hover:border-white/30 hover:bg-white/5 hover:text-white sm:inline-flex">
+                Continue shopping
+              </Link>
+              {user && (
+                <button
+                  type="button"
+                  onClick={() => void handleLogout()}
+                  disabled={loggingOut}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/15 px-3.5 py-2 text-xs font-semibold text-white/75 transition hover:border-white/30 hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-60"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  {loggingOut ? "Logging out…" : "Log out"}
+                </button>
+              )}
+            </div>
           </div>
           <nav className="-mx-1 flex gap-1 overflow-x-auto pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Account navigation">
             {items.map(({ href, label, icon: Icon }) => {

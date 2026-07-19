@@ -84,7 +84,7 @@ export default function CheckoutPage() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       const savedPincode = window.localStorage.getItem("delivery-pincode");
-      if (savedPincode && /^\d{6}$/.test(savedPincode)) {
+      if (savedPincode && /^[1-9]\d{5}$/.test(savedPincode)) {
         setAddress((current) => ({
           ...current,
           pincode: current.pincode || savedPincode,
@@ -270,8 +270,8 @@ export default function CheckoutPage() {
               if (result?.serviceable) {
                 setAddress((current) => ({
                   ...current,
-                  city: result.city,
-                  state: result.state,
+                  ...(result.city ? { city: result.city } : {}),
+                  ...(result.state ? { state: result.state } : {}),
                   pincode: result.pincode,
                 }));
                 const payableBeforeFee = coupon?.total ?? cart.subtotal;
@@ -449,7 +449,6 @@ function DetailsForm({
             value={address.pincode}
             onValueChange={(pincode) => setAddress({ pincode })}
             onResult={onServiceabilityChange}
-            source="checkout"
             heading="Confirm delivery for this PIN code"
           />
         </div>

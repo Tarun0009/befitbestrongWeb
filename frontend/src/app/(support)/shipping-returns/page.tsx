@@ -18,7 +18,7 @@ export default function ShippingReturnsPage() {
         {
           title: "Delivery coverage",
           paragraphs: [
-            "We currently serve a limited set of areas. Enter your six-digit PIN code before checkout. If the PIN code is not serviceable, you can submit an area request so the team can measure demand; an area request is not a delivery promise.",
+            "We deliver across India. Enter your six-digit PIN code before checkout to confirm the delivery estimate and payment options for your address. Delivery dates are estimates and may vary by carrier and destination.",
           ],
         },
         {

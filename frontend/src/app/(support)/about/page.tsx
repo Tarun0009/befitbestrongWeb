@@ -23,9 +23,9 @@ export default function AboutPage() {
           ],
         },
         {
-          title: "Our service area",
+          title: "Delivery across India",
           paragraphs: [
-            "Delivery coverage is limited and can change. Enter your six-digit PIN code on a product or at checkout to see whether the current service area includes you. If it does not, you can request that area for future planning.",
+            "We deliver across India. Enter your six-digit PIN code on a product or at checkout to confirm the delivery estimate and available payment options for your address.",
           ],
         },
       ]}
