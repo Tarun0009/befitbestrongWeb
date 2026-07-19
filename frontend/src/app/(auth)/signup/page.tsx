@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  createUserWithEmailAndPassword,
-  updateProfile,
-} from "firebase/auth";
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { Dumbbell } from "lucide-react";
+import { PasswordField } from "@/features/auth/PasswordField";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { useAppSelector } from "@/lib/hooks";
 
@@ -31,8 +30,8 @@ export default function SignupPage() {
     if (status === "authenticated") router.replace(nextPath);
   }, [status, nextPath, router]);
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function onSubmit(event: FormEvent) {
+    event.preventDefault();
     if (password.length < 6) {
       setError("Password must be at least 6 characters.");
       return;
@@ -40,18 +39,19 @@ export default function SignupPage() {
     setError(null);
     setLoading(true);
     try {
-      const cred = await createUserWithEmailAndPassword(
+      const credential = await createUserWithEmailAndPassword(
         getFirebaseAuth(),
-        email,
+        email.trim(),
         password,
       );
-      if (name) {
-        await updateProfile(cred.user, { displayName: name });
+      const cleanName = name.trim();
+      if (cleanName) {
+        await updateProfile(credential.user, { displayName: cleanName });
       }
-    } catch (err) {
-      const message =
-        err instanceof Error ? mapFirebaseError(err) : "Signup failed";
-      setError(message);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? mapFirebaseError(caught) : "Signup failed",
+      );
     } finally {
       setLoading(false);
     }
@@ -59,18 +59,27 @@ export default function SignupPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold">Create an account</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Join beFitBeStrong — takes 20 seconds.
+      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+        <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground">
+          <Dumbbell className="h-4 w-4" />
+        </span>
+        Start your account
+      </div>
+      <h1 className="mt-7 text-3xl font-semibold tracking-tight sm:text-4xl">
+        Build your routine
+      </h1>
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">
+        Save your favorites, track every order, and get more from every session.
       </p>
 
-      <form onSubmit={onSubmit} className="mt-8 space-y-4">
+      <form onSubmit={onSubmit} className="mt-8 space-y-5">
         <Field
           label="Name"
           type="text"
           value={name}
           onChange={setName}
           autoComplete="name"
+          placeholder="Your name"
         />
         <Field
           label="Email"
@@ -78,19 +87,24 @@ export default function SignupPage() {
           value={email}
           onChange={setEmail}
           autoComplete="email"
+          placeholder="you@example.com"
           required
         />
-        <Field
+        <PasswordField
           label="Password"
-          type="password"
           value={password}
           onChange={setPassword}
           autoComplete="new-password"
           required
+          minLength={6}
+          helperText="Use at least 6 characters."
         />
 
         {error && (
-          <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <div
+            role="alert"
+            className="rounded-xl border border-red-300 bg-red-50 px-3.5 py-3 text-sm leading-5 text-red-700"
+          >
             {error}
           </div>
         )}
@@ -98,15 +112,18 @@ export default function SignupPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-md bg-primary px-4 py-2 text-primary-foreground disabled:opacity-60"
+          className="h-12 w-full rounded-xl bg-foreground px-4 text-sm font-semibold text-background transition hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
         >
           {loading ? "Creating account…" : "Create account"}
         </button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-muted-foreground">
+      <p className="mt-8 text-center text-sm text-muted-foreground">
         Already have an account?{" "}
-        <Link href="/login" className="text-foreground underline">
+        <Link
+          href="/login"
+          className="font-semibold text-foreground underline underline-offset-4"
+        >
           Log in
         </Link>
       </p>
@@ -120,38 +137,44 @@ function Field({
   onChange,
   type,
   autoComplete,
+  placeholder,
   required,
 }: {
   label: string;
   value: string;
-  onChange: (v: string) => void;
-  type: string;
+  onChange: (value: string) => void;
+  type: "email" | "text";
   autoComplete?: string;
+  placeholder?: string;
   required?: boolean;
 }) {
   return (
     <label className="block">
-      <span className="text-sm font-medium">{label}</span>
+      <span className="text-sm font-semibold text-foreground">{label}</span>
       <input
-        className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-primary/30"
+        className="mt-1.5 h-12 w-full rounded-xl border border-border bg-[#fcfbf8] px-3.5 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-primary-emphasis focus:bg-background focus:ring-4 focus:ring-primary/15"
         type={type}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(event) => onChange(event.target.value)}
         autoComplete={autoComplete}
+        placeholder={placeholder}
         required={required}
       />
     </label>
   );
 }
 
-function mapFirebaseError(err: Error): string {
-  const msg = err.message;
-  if (msg.includes("auth/email-already-in-use"))
+function mapFirebaseError(error: Error): string {
+  const message = error.message;
+  if (message.includes("auth/email-already-in-use")) {
     return "That email is already registered.";
-  if (msg.includes("auth/invalid-email")) return "That email looks invalid.";
-  if (msg.includes("auth/weak-password"))
-    return "Password is too weak — try at least 8 characters.";
-  if (msg.includes("Firebase env vars are missing"))
-    return "Firebase is not configured yet. Fill NEXT_PUBLIC_FIREBASE_* in .env.local.";
-  return msg;
+  }
+  if (message.includes("auth/invalid-email")) return "That email looks invalid.";
+  if (message.includes("auth/weak-password")) {
+    return "Password is too weak — try at least 6 characters.";
+  }
+  if (message.includes("Firebase env vars are missing")) {
+    return "Account creation is temporarily unavailable. Please try again later.";
+  }
+  return "We couldn't create your account. Please try again.";
 }

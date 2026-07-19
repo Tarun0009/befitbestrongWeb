@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword } from "firebase/auth";
+import { LockKeyhole } from "lucide-react";
+import { PasswordField } from "@/features/auth/PasswordField";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { useAppSelector } from "@/lib/hooks";
-import { useEffect } from "react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -28,16 +29,16 @@ export default function LoginPage() {
     if (status === "authenticated") router.replace(nextPath);
   }, [status, nextPath, router]);
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function onSubmit(event: FormEvent) {
+    event.preventDefault();
     setError(null);
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(getFirebaseAuth(), email, password);
-    } catch (err) {
-      const message =
-        err instanceof Error ? mapFirebaseError(err) : "Login failed";
-      setError(message);
+      await signInWithEmailAndPassword(getFirebaseAuth(), email.trim(), password);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? mapFirebaseError(caught) : "Login failed",
+      );
     } finally {
       setLoading(false);
     }
@@ -45,39 +46,50 @@ export default function LoginPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold">Welcome back</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Log in to your beFitBeStrong account.
+      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
+        <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground">
+          <LockKeyhole className="h-4 w-4" />
+        </span>
+        Member access
+      </div>
+      <h1 className="mt-7 text-3xl font-semibold tracking-tight sm:text-4xl">
+        Welcome back
+      </h1>
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">
+        Sign in to manage your orders, wishlist, rewards, and subscriptions.
       </p>
 
-      <form onSubmit={onSubmit} className="mt-8 space-y-4">
+      <form onSubmit={onSubmit} className="mt-8 space-y-5">
         <Field
           label="Email"
           type="email"
           value={email}
           onChange={setEmail}
           autoComplete="email"
+          placeholder="you@example.com"
           required
         />
-        <Field
+        <PasswordField
           label="Password"
-          type="password"
           value={password}
           onChange={setPassword}
           autoComplete="current-password"
           required
         />
-        <div className="-mt-2 text-right">
+        <div className="-mt-1 text-right">
           <Link
             href="/forgot-password"
-            className="text-xs font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground"
+            className="text-xs font-semibold text-muted-foreground underline underline-offset-4 hover:text-foreground"
           >
             Forgot password?
           </Link>
         </div>
 
         {error && (
-          <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <div
+            role="alert"
+            className="rounded-xl border border-red-300 bg-red-50 px-3.5 py-3 text-sm leading-5 text-red-700"
+          >
             {error}
           </div>
         )}
@@ -85,16 +97,19 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-md bg-primary px-4 py-2 text-primary-foreground disabled:opacity-60"
+          className="h-12 w-full rounded-xl bg-foreground px-4 text-sm font-semibold text-background transition hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
         >
           {loading ? "Logging in…" : "Log in"}
         </button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-muted-foreground">
+      <p className="mt-8 text-center text-sm text-muted-foreground">
         No account yet?{" "}
-        <Link href="/signup" className="text-foreground underline">
-          Sign up
+        <Link
+          href="/signup"
+          className="font-semibold text-foreground underline underline-offset-4"
+        >
+          Create one
         </Link>
       </p>
     </div>
@@ -107,36 +122,43 @@ function Field({
   onChange,
   type,
   autoComplete,
+  placeholder,
   required,
 }: {
   label: string;
   value: string;
-  onChange: (v: string) => void;
-  type: string;
+  onChange: (value: string) => void;
+  type: "email" | "text";
   autoComplete?: string;
+  placeholder?: string;
   required?: boolean;
 }) {
   return (
     <label className="block">
-      <span className="text-sm font-medium">{label}</span>
+      <span className="text-sm font-semibold text-foreground">{label}</span>
       <input
-        className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-primary/30"
+        className="mt-1.5 h-12 w-full rounded-xl border border-border bg-[#fcfbf8] px-3.5 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-primary-emphasis focus:bg-background focus:ring-4 focus:ring-primary/15"
         type={type}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(event) => onChange(event.target.value)}
         autoComplete={autoComplete}
+        placeholder={placeholder}
         required={required}
       />
     </label>
   );
 }
 
-function mapFirebaseError(err: Error): string {
-  const msg = err.message;
-  if (msg.includes("auth/invalid-credential")) return "Invalid email or password.";
-  if (msg.includes("auth/too-many-requests"))
+function mapFirebaseError(error: Error): string {
+  const message = error.message;
+  if (message.includes("auth/invalid-credential")) {
+    return "Invalid email or password.";
+  }
+  if (message.includes("auth/too-many-requests")) {
     return "Too many attempts. Please try again in a minute.";
-  if (msg.includes("Firebase env vars are missing"))
-    return "Firebase is not configured yet. Fill NEXT_PUBLIC_FIREBASE_* in .env.local.";
-  return msg;
+  }
+  if (message.includes("Firebase env vars are missing")) {
+    return "Sign-in is temporarily unavailable. Please try again later.";
+  }
+  return "We couldn't sign you in. Please check your details and try again.";
 }
