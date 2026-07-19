@@ -1,18 +1,17 @@
-import { createHash } from "node:crypto";
 import type { PaymentMethod, Prisma, ServiceArea } from "@prisma/client";
 import { prisma } from "../../config/db.js";
 import { HttpError } from "../../middleware/errorHandler.js";
 
-const PINCODE_PATTERN = /^\d{6}$/;
+const PINCODE_PATTERN = /^[1-9]\d{5}$/;
 
 export type ServiceabilityResult =
   | { serviceable: false; pincode: string }
   | {
       serviceable: true;
       pincode: string;
-      zone: ServiceArea["zone"];
-      city: string;
-      state: string;
+      zone: ServiceArea["zone"] | null;
+      city: string | null;
+      state: string | null;
       prepaidEnabled: boolean;
       codEnabled: boolean;
       codMaxOrderAmount: number;
@@ -20,6 +19,29 @@ export type ServiceabilityResult =
       estimatedDeliveryMinDays: number;
       estimatedDeliveryMaxDays: number;
     };
+
+export type ServiceabilityPolicy = Pick<
+  ServiceArea,
+  | "pincode"
+  | "prepaidEnabled"
+  | "codEnabled"
+  | "codMaxOrderAmount"
+  | "codFee"
+  | "estimatedDeliveryMinDays"
+  | "estimatedDeliveryMaxDays"
+>;
+
+// Delivery is PAN India. These defaults are deliberately centralized so the
+// checkout path cannot accidentally fall back to the old city/PIN allow-list.
+// Amounts are stored in paise, matching the rest of the payment system.
+const PAN_INDIA_POLICY = {
+  prepaidEnabled: true,
+  codEnabled: true,
+  codMaxOrderAmount: 500_000,
+  codFee: 0,
+  estimatedDeliveryMinDays: 3,
+  estimatedDeliveryMaxDays: 7,
+} as const;
 
 export function normalizePincode(value: string): string {
   const pincode = value.trim();
@@ -37,44 +59,38 @@ export async function getServiceability(
   value: string,
 ): Promise<ServiceabilityResult> {
   const pincode = normalizePincode(value);
-  const area = await prisma.serviceArea.findFirst({
-    where: { pincode, active: true },
+  // Existing service-area rows are retained as historical location metadata.
+  // They are intentionally not filtered by `active` and never gate coverage.
+  const area = await prisma.serviceArea.findUnique({
+    where: { pincode },
+    select: { zone: true, city: true, state: true },
   });
-
-  if (!area) return { serviceable: false, pincode };
 
   return {
     serviceable: true,
     pincode,
-    zone: area.zone,
-    city: area.city,
-    state: area.state,
-    prepaidEnabled: area.prepaidEnabled,
-    codEnabled: area.codEnabled,
-    codMaxOrderAmount: area.codMaxOrderAmount,
-    codFee: area.codFee,
-    estimatedDeliveryMinDays: area.estimatedDeliveryMinDays,
-    estimatedDeliveryMaxDays: area.estimatedDeliveryMaxDays,
+    zone: area?.zone ?? null,
+    city: area?.city ?? null,
+    state: area?.state ?? null,
+    ...PAN_INDIA_POLICY,
   };
 }
 
-export async function requireServiceArea(value: string): Promise<ServiceArea> {
+export async function requireServiceArea(
+  value: string,
+): Promise<ServiceabilityPolicy> {
   const pincode = normalizePincode(value);
-  const area = await prisma.serviceArea.findFirst({
-    where: { pincode, active: true },
-  });
-  if (!area) {
-    throw new HttpError(
-      422,
-      "area_not_serviceable",
-      "We do not deliver to this PIN code yet. You can request service in your area.",
-    );
-  }
-  return area;
+  return { pincode, ...PAN_INDIA_POLICY };
 }
 
 export function assertPaymentMethodAvailable(
-  area: ServiceArea,
+  area: Pick<
+    ServiceArea,
+    | "prepaidEnabled"
+    | "codEnabled"
+    | "codMaxOrderAmount"
+    | "codFee"
+  >,
   paymentMethod: PaymentMethod,
   amountBeforeFee: number,
 ): { paymentFee: number; total: number } {
@@ -109,87 +125,6 @@ export function assertPaymentMethodAvailable(
   }
 
   return { paymentFee: area.codFee, total };
-}
-
-function requesterHash(pincode: string, identity: string) {
-  return createHash("sha256")
-    .update("service-area-request:" + pincode + ":" + identity)
-    .digest("hex");
-}
-
-export async function recordServiceAreaRequest(input: {
-  pincode: string;
-  userId: string | null;
-  accountEmail: string | null;
-  email?: string | null;
-  phone?: string | null;
-  productId?: string | null;
-  source: string;
-}) {
-  const pincode = normalizePincode(input.pincode);
-  const supported = await prisma.serviceArea.findFirst({
-    where: { pincode, active: true },
-    select: { id: true },
-  });
-  if (supported) {
-    throw new HttpError(
-      409,
-      "area_already_serviceable",
-      "Good news — delivery is already available for this PIN code",
-    );
-  }
-
-  const email = (input.accountEmail ?? input.email)?.trim().toLowerCase() ?? null;
-  if (!input.userId && !email) {
-    throw new HttpError(
-      400,
-      "contact_required",
-      "Enter an email so we can notify you when delivery opens",
-    );
-  }
-
-  if (input.productId) {
-    const productExists = await prisma.product.count({
-      where: { id: input.productId, active: true },
-    });
-    if (!productExists) {
-      throw new HttpError(404, "product_not_found", "Product not found");
-    }
-  }
-
-  const identity = input.userId
-    ? "user:" + input.userId
-    : "email:" + email;
-  const hash = requesterHash(pincode, identity);
-
-  const request = await prisma.serviceAreaRequest.upsert({
-    where: {
-      pincode_requesterHash: {
-        pincode,
-        requesterHash: hash,
-      },
-    },
-    update: {
-      attemptCount: { increment: 1 },
-      lastRequestedAt: new Date(),
-      email,
-      phone: input.phone?.trim() || null,
-      productId: input.productId ?? null,
-      source: input.source,
-    },
-    create: {
-      pincode,
-      requesterHash: hash,
-      email,
-      phone: input.phone?.trim() || null,
-      userId: input.userId,
-      productId: input.productId ?? null,
-      source: input.source,
-    },
-    select: { id: true, pincode: true, createdAt: true },
-  });
-
-  return request;
 }
 
 export type ServiceabilityTx = Prisma.TransactionClient;

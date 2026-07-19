@@ -35,7 +35,7 @@ const addressBody = z.object({
   line2: z.string().trim().max(200).optional().nullable(),
   city: z.string().trim().min(1).max(80),
   state: z.string().trim().min(1).max(80),
-  pincode: z.string().trim().regex(/^\d{6}$/),
+  pincode: z.string().trim().regex(/^[1-9]\d{5}$/),
   country: z.literal("IN").optional(),
 });
 

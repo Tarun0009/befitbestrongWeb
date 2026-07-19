@@ -102,6 +102,8 @@ enum CourierBookingStatus {
   CANCELLED
 }
 
+// Legacy metadata retained for existing database rows and historical order
+// compatibility. It is not used as a delivery coverage allow-list.
 enum ServiceZone {
   DELHI
   NOIDA
@@ -343,6 +345,8 @@ model Address {
   @@index([userId])
 }
 
+// Legacy service-area metadata. PAN-India checkout does not require an active
+// row here; keep the table until an explicit data-retention migration is agreed.
 model ServiceArea {
   id                       String      @id @default(cuid())
   pincode                  String      @unique
@@ -362,6 +366,8 @@ model ServiceArea {
   @@index([active, zone])
 }
 
+// Legacy model retained for backwards-compatible database migrations. New
+// storefronts no longer create unsupported-area requests.
 model ServiceAreaRequest {
   id              String   @id @default(cuid())
   pincode         String

@@ -442,39 +442,15 @@ paths:
   /serviceability/{pincode}:
     get:
       tags: [Serviceability]
-      summary: Check the active delivery and payment policy for an exact PIN
+      summary: Check PAN-India delivery estimate and payment policy for an exact PIN
       parameters:
         - name: pincode
           in: path
           required: true
-          schema: { type: string, pattern: "^\\d{6}$" }
+          schema: { type: string, pattern: "^[1-9]\\d{5}$" }
       responses:
         "200": { description: Serviceability result and eligible payment methods }
         "400": { description: Invalid PIN }
-  /serviceability/requests:
-    post:
-      tags: [Serviceability]
-      security: [{ firebaseBearer: [] }]
-      summary: Register de-duplicated demand for an unsupported PIN
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [pincode]
-              properties:
-                pincode: { type: string, pattern: "^\\d{6}$" }
-                email: { type: string, format: email }
-                phone: { type: string }
-                productId: { type: string }
-                source:
-                  type: string
-                  enum: [product, checkout, cart, footer, storefront]
-      responses:
-        "202": { description: Request accepted, including duplicate requests }
-        "409": { description: PIN is already serviceable }
-        "429": { description: Rate limited }
 
   # ---------------- Checkout ----------------
   /checkout/config:
@@ -751,31 +727,6 @@ paths:
       responses:
         "204": { description: Deleted }
         "409": { description: Has products — reassign first }
-  /admin/service-areas:
-    get:
-      tags: [Admin]
-      security: [{ firebaseBearer: [] }]
-      responses:
-        "200": { description: Paginated service-area policy rows }
-    post:
-      tags: [Admin]
-      security: [{ firebaseBearer: [] }]
-      responses:
-        "201": { description: Service area created }
-  /admin/service-areas/{id}:
-    patch:
-      tags: [Admin]
-      security: [{ firebaseBearer: [] }]
-      parameters:
-        - { name: id, in: path, required: true, schema: { type: string } }
-      responses:
-        "200": { description: Service-area policy updated }
-  /admin/service-area-demand:
-    get:
-      tags: [Admin]
-      security: [{ firebaseBearer: [] }]
-      responses:
-        "200": { description: Unsupported PIN demand ranked by attempts }
   /admin/notifications:
     get:
       tags: [Admin]
