@@ -45,6 +45,8 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:4000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
-# Migrations run once as a release job, not once per API replica.
-CMD ["node", "dist/server.js"]
+# Render's free Docker service does not provide a separate release job.
+# Run the idempotent Prisma migration step before starting the API. Render can
+# override this with a pre-deploy command on plans that support one.
+CMD ["/bin/sh", "-c", "pnpm run migrate:deploy && exec node dist/server.js"]
 
