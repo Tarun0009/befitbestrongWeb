@@ -29,9 +29,10 @@ export function getRuntimeConfigurationStatus(
           environment.FIREBASE_PRIVATE_KEY)),
   );
   const payments = Boolean(
+    environment.PAYMENTS_ENABLED &&
     environment.RAZORPAY_KEY_ID &&
-      environment.RAZORPAY_KEY_SECRET &&
-      environment.RAZORPAY_WEBHOOK_SECRET,
+    environment.RAZORPAY_KEY_SECRET &&
+    environment.RAZORPAY_WEBHOOK_SECRET,
   );
   const email = Boolean(environment.RESEND_API_KEY && environment.EMAIL_FROM);
   const courier = Boolean(
@@ -45,7 +46,7 @@ export function getRuntimeConfigurationStatus(
   const deployed = environment.APP_ENV !== "local";
   const required = {
     firebase: deployed,
-    payments: deployed,
+    payments: deployed && environment.PAYMENTS_ENABLED,
     email: environment.EMAIL_DELIVERY_REQUIRED,
     courier: false,
   };
