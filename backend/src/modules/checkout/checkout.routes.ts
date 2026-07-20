@@ -17,6 +17,7 @@ const CART_COOKIE = "cart_sid";
 
 router.get("/config", (_req, res) => {
   res.json({
+    paymentsEnabled: env.PAYMENTS_ENABLED,
     razorpayConfigured: isRazorpayConfigured(),
     razorpayKeyId: env.RAZORPAY_KEY_ID ?? null,
     devMode: env.NODE_ENV !== "production",

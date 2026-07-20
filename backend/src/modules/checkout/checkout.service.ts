@@ -115,6 +115,14 @@ const TAX_RATE = 0; // demo has GST-inclusive pricing already
 export async function createCheckoutSession(
   input: CheckoutInput,
 ): Promise<CheckoutSessionOutcome> {
+  if (input.paymentMethod === "PREPAID" && !env.PAYMENTS_ENABLED) {
+    throw new HttpError(
+      503,
+      "prepaid_unavailable",
+      "Online payments are temporarily unavailable. Choose Cash on delivery.",
+    );
+  }
+
   const claim = await acquireCheckoutAttempt({
     owner: input.cartOwner,
     idempotencyKey: input.idempotencyKey,

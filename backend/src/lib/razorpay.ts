@@ -548,12 +548,14 @@ export function createRazorpayClient(
 }
 
 export function isRazorpayConfigured(): boolean {
-  return Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET);
+  return Boolean(
+    env.PAYMENTS_ENABLED && env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET,
+  );
 }
 
 function requireCredentials(): { keyId: string; keySecret: string } {
   const { RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET } = env;
-  if (!RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET) {
+  if (!env.PAYMENTS_ENABLED || !RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET) {
     throw new HttpError(
       503,
       "payment_unavailable",

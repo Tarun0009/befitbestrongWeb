@@ -178,6 +178,7 @@ export interface CheckoutSessionResponse {
 }
 
 export interface CheckoutConfig {
+  paymentsEnabled: boolean;
   razorpayConfigured: boolean;
   razorpayKeyId: string | null;
   devMode: boolean;

@@ -8,6 +8,11 @@ const stringBoolean = z
   .default("false")
   .transform((value) => value === "true");
 
+const stringBooleanDefaultTrue = z
+  .enum(["true", "false"])
+  .default("true")
+  .transform((value) => value === "true");
+
 const RAZORPAY_PRODUCTION_API = "https://api.razorpay.com/v1";
 
 function serviceUrl(protocols: string[], label: string) {
@@ -74,6 +79,9 @@ const baseEnvSchema = z.object({
   FIREBASE_PRIVATE_KEY: emptyToUndefined(z.string().min(1).optional()),
   FIREBASE_AUTH_EMULATOR_HOST: emptyToUndefined(z.string().min(1).optional()),
 
+  // Existing deployments keep payments enabled by default. Set this to false
+  // for a deliberate COD-only launch while Razorpay is being onboarded.
+  PAYMENTS_ENABLED: stringBooleanDefaultTrue,
   RAZORPAY_KEY_ID: emptyToUndefined(z.string().min(1).optional()),
   RAZORPAY_KEY_SECRET: emptyToUndefined(z.string().min(1).optional()),
   RAZORPAY_WEBHOOK_SECRET: emptyToUndefined(z.string().min(16).optional()),
@@ -296,7 +304,7 @@ export const backendEnvSchema = baseEnvSchema.superRefine((data, context) => {
     context,
     ["RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET"],
     "Razorpay",
-    deployed,
+    deployed && data.PAYMENTS_ENABLED,
   );
   validateGroup(
     data,
@@ -332,6 +340,7 @@ export const backendEnvSchema = baseEnvSchema.superRefine((data, context) => {
   }
   if (
     production &&
+    data.PAYMENTS_ENABLED &&
     data.RAZORPAY_KEY_ID &&
     !data.RAZORPAY_KEY_ID.startsWith("rzp_live_")
   ) {

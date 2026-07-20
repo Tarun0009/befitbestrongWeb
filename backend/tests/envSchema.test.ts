@@ -80,6 +80,18 @@ describe("backend environment policy", () => {
     expect(backendEnvSchema.safeParse(deployedBase).success).toBe(true);
   });
 
+  it("allows deployed COD-only configuration without Razorpay credentials", () => {
+    expect(
+      backendEnvSchema.safeParse({
+        ...deployedBase,
+        PAYMENTS_ENABLED: "false",
+        RAZORPAY_KEY_ID: undefined,
+        RAZORPAY_KEY_SECRET: undefined,
+        RAZORPAY_WEBHOOK_SECRET: undefined,
+      }).success,
+    ).toBe(true);
+  });
+
   it("requires live payment keys and HTTPS origins in production", () => {
     const result = backendEnvSchema.safeParse({
       ...deployedBase,

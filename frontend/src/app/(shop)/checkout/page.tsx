@@ -61,6 +61,9 @@ export default function CheckoutPage() {
   const user = useAppSelector((state) => state.auth.user);
   const { data: cart, isLoading: cartLoading } = useGetCartQuery();
   const { data: config } = useGetCheckoutConfigQuery();
+  // Default to enabled while the config request is loading or when talking to
+  // an older backend that does not yet return the feature flag.
+  const paymentsEnabled = config?.paymentsEnabled ?? true;
   const [createSession, { isLoading: creating }] =
     useCreateCheckoutSessionMutation();
   const [devComplete] = useDevCompleteOrderMutation();
@@ -80,6 +83,12 @@ export default function CheckoutPage() {
   const checkoutAttempt = useRef<{ fingerprint: string; key: string } | null>(
     null,
   );
+
+  useEffect(() => {
+    if (config && !paymentsEnabled) {
+      setPaymentMethod("COD");
+    }
+  }, [config, paymentsEnabled]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -275,7 +284,9 @@ export default function CheckoutPage() {
                   pincode: result.pincode,
                 }));
                 const payableBeforeFee = coupon?.total ?? cart.subtotal;
-                if (
+                if (!paymentsEnabled) {
+                  setPaymentMethod("COD");
+                } else if (
                   !result.codEnabled ||
                   payableBeforeFee + result.codFee >
                     result.codMaxOrderAmount
@@ -298,6 +309,7 @@ export default function CheckoutPage() {
             paying={creating}
             error={error}
             devMode={!config?.razorpayConfigured && Boolean(config?.devMode)}
+            paymentsEnabled={paymentsEnabled}
             serviceability={serviceability}
             paymentMethod={paymentMethod}
             onPaymentMethodChange={setPaymentMethod}
@@ -479,6 +491,7 @@ function ReviewPanel({
   paying,
   error,
   devMode,
+  paymentsEnabled,
   serviceability,
   paymentMethod,
   onPaymentMethodChange,
@@ -491,6 +504,7 @@ function ReviewPanel({
   paying: boolean;
   error: string | null;
   devMode: boolean;
+  paymentsEnabled: boolean;
   serviceability: ServiceabilityResult | null;
   paymentMethod: PaymentMethod;
   onPaymentMethodChange: (method: PaymentMethod) => void;
@@ -504,7 +518,7 @@ function ReviewPanel({
   const paymentValid =
     paymentMethod === "COD"
       ? codEligible
-      : Boolean(supported?.prepaidEnabled);
+      : paymentsEnabled && Boolean(supported?.prepaidEnabled);
 
   return (
     <div className="space-y-5">
@@ -545,24 +559,30 @@ function ReviewPanel({
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Payment method
         </p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <button
-            type="button"
-            disabled={!supported?.prepaidEnabled}
-            onClick={() => onPaymentMethodChange("PREPAID")}
-            className={
-              "rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-45 " +
-              (paymentMethod === "PREPAID"
-                ? "border-foreground bg-foreground text-background"
-                : "border-border hover:bg-muted/40")
-            }
-          >
-            <CreditCard className="h-5 w-5" />
-            <span className="mt-3 block text-sm font-semibold">Pay online</span>
-            <span className="mt-1 block text-xs opacity-70">
-              Secure Razorpay checkout
-            </span>
-          </button>
+        <div
+          className={
+            "mt-3 grid gap-3 " + (paymentsEnabled ? "sm:grid-cols-2" : "")
+          }
+        >
+          {paymentsEnabled && (
+            <button
+              type="button"
+              disabled={!supported?.prepaidEnabled}
+              onClick={() => onPaymentMethodChange("PREPAID")}
+              className={
+                "rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-45 " +
+                (paymentMethod === "PREPAID"
+                  ? "border-foreground bg-foreground text-background"
+                  : "border-border hover:bg-muted/40")
+              }
+            >
+              <CreditCard className="h-5 w-5" />
+              <span className="mt-3 block text-sm font-semibold">Pay online</span>
+              <span className="mt-1 block text-xs opacity-70">
+                Secure Razorpay checkout
+              </span>
+            </button>
+          )}
           <button
             type="button"
             disabled={!codEligible}
@@ -585,6 +605,12 @@ function ReviewPanel({
             </span>
           </button>
         </div>
+        {!paymentsEnabled && (
+          <p className="mt-3 text-xs leading-5 text-muted-foreground">
+            Online payments are temporarily unavailable. Cash on delivery is
+            currently available.
+          </p>
+        )}
         {supported?.codEnabled && !codEligible && (
           <p className="mt-3 text-xs leading-5 text-orange-700">
             COD is limited to {formatINR(supported.codMaxOrderAmount)} for this
