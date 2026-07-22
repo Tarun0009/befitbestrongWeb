@@ -43,6 +43,122 @@ const baseEnvSchema = z.object({
   CORS_ORIGIN: z.string().min(1).default("http://localhost:3005"),
   FRONTEND_URL: z.string().url().default("http://localhost:3005"),
 
+  // Rate limits are configuration rather than route constants, so operators
+  // can tune them for traffic and provider limits without a code deploy.
+  RATE_LIMIT_AUTH_IP_MAX: z.coerce.number().int().positive().max(100_000).default(10),
+  RATE_LIMIT_AUTH_ACCOUNT_MAX: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(100_000)
+    .default(5),
+  RATE_LIMIT_AUTH_WINDOW_SEC: z.coerce.number().int().positive().max(86_400).default(60),
+  RATE_LIMIT_AUTH_BACKOFF_BASE_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(86_400)
+    .default(5),
+  RATE_LIMIT_AUTH_BACKOFF_MAX_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(86_400)
+    .default(300),
+
+  RATE_LIMIT_PUBLIC_IP_MAX: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(100_000)
+    .default(120),
+  RATE_LIMIT_PUBLIC_ACCOUNT_MAX: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(100_000)
+    .default(240),
+  RATE_LIMIT_PUBLIC_WINDOW_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(86_400)
+    .default(60),
+  RATE_LIMIT_PUBLIC_BACKOFF_BASE_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(86_400)
+    .default(2),
+  RATE_LIMIT_PUBLIC_BACKOFF_MAX_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(86_400)
+    .default(60),
+
+  RATE_LIMIT_AUTHENTICATED_IP_MAX: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(100_000)
+    .default(180),
+  RATE_LIMIT_AUTHENTICATED_ACCOUNT_MAX: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(100_000)
+    .default(120),
+  RATE_LIMIT_AUTHENTICATED_WINDOW_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(86_400)
+    .default(60),
+  RATE_LIMIT_AUTHENTICATED_BACKOFF_BASE_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(86_400)
+    .default(1),
+  RATE_LIMIT_AUTHENTICATED_BACKOFF_MAX_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(86_400)
+    .default(30),
+
+  RATE_LIMIT_SERVICEABILITY_IP_MAX: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(100_000)
+    .default(30),
+  RATE_LIMIT_SERVICEABILITY_ACCOUNT_MAX: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(100_000)
+    .default(60),
+  RATE_LIMIT_SERVICEABILITY_WINDOW_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(86_400)
+    .default(3_600),
+  RATE_LIMIT_SERVICEABILITY_BACKOFF_BASE_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(86_400)
+    .default(5),
+  RATE_LIMIT_SERVICEABILITY_BACKOFF_MAX_SEC: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(86_400)
+    .default(600),
+
   CHECKOUT_RESERVATION_MINUTES: z.coerce
     .number()
     .int()
@@ -61,6 +177,43 @@ const baseEnvSchema = z.object({
     .min(1)
     .max(500)
     .default(50),
+  PAYMENT_RECONCILIATION_SCAN_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(15)
+    .max(3600)
+    .default(30),
+  PAYMENT_RECONCILIATION_BATCH_SIZE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(25),
+  PAYMENT_RECONCILIATION_INITIAL_DELAY_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(5)
+    .max(600)
+    .default(20),
+  PAYMENT_RECONCILIATION_MAX_DELAY_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(30)
+    .max(3600)
+    .default(300),
+  PAYMENT_CREATED_GRACE_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(30)
+    .max(3600)
+    .default(300),
+  WEBHOOK_RECOVERY_MIN_AGE_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(15)
+    .max(3600)
+    .default(60),
+  WEBHOOK_RECOVERY_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(50),
   REFUND_RECONCILIATION_SCAN_SECONDS: z.coerce
     .number()
     .int()
@@ -194,6 +347,38 @@ export const backendEnvSchema = baseEnvSchema.superRefine((data, context) => {
   const deployed = data.APP_ENV !== "local";
   const production = data.APP_ENV === "production";
   const firebaseEmulator = Boolean(data.FIREBASE_AUTH_EMULATOR_HOST);
+
+  const backoffPolicies = [
+    [
+      "auth",
+      data.RATE_LIMIT_AUTH_BACKOFF_BASE_SEC,
+      data.RATE_LIMIT_AUTH_BACKOFF_MAX_SEC,
+    ],
+    [
+      "public",
+      data.RATE_LIMIT_PUBLIC_BACKOFF_BASE_SEC,
+      data.RATE_LIMIT_PUBLIC_BACKOFF_MAX_SEC,
+    ],
+    [
+      "authenticated",
+      data.RATE_LIMIT_AUTHENTICATED_BACKOFF_BASE_SEC,
+      data.RATE_LIMIT_AUTHENTICATED_BACKOFF_MAX_SEC,
+    ],
+    [
+      "serviceability",
+      data.RATE_LIMIT_SERVICEABILITY_BACKOFF_BASE_SEC,
+      data.RATE_LIMIT_SERVICEABILITY_BACKOFF_MAX_SEC,
+    ],
+  ] as const;
+  for (const [label, base, maximum] of backoffPolicies) {
+    if (base > maximum) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [`RATE_LIMIT_${label.toUpperCase()}_BACKOFF_BASE_SEC`],
+        message: `Rate-limit backoff base must not exceed the ${label} maximum`,
+      });
+    }
+  }
 
   if (firebaseEmulator) {
     if (deployed) {

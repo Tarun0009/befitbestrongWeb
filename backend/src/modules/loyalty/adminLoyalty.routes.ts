@@ -60,6 +60,7 @@ router.post("/loyalty/users/:userId/adjust", async (req, res, next) => {
         ),
         reason: z.string().trim().min(3).max(300),
       })
+      .strict()
       .parse(req.body);
     const result = await adjustUserPoints(
       userId,

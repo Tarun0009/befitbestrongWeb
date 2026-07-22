@@ -271,6 +271,76 @@ describe("Razorpay bounded HTTP client", () => {
   });
 });
 
+describe("payment verification and reconciliation reads", () => {
+  it("validates an exact checkout signature", async () => {
+    const { verifyCheckoutPaymentSignature } = await import(
+      "../src/lib/razorpay.js"
+    );
+    const orderId = "order_provider_1";
+    const paymentId = "pay_provider_1";
+    const signature = crypto
+      .createHmac("sha256", "test_key_secret")
+      .update(orderId + "|" + paymentId)
+      .digest("hex");
+
+    expect(
+      verifyCheckoutPaymentSignature({ orderId, paymentId, signature }),
+    ).toBe(true);
+    expect(
+      verifyCheckoutPaymentSignature({
+        orderId,
+        paymentId,
+        signature: "0".repeat(64),
+      }),
+    ).toBe(false);
+  });
+
+  it("fetches and validates both a payment and an order payment collection", async () => {
+    const { createRazorpayClient } = await import("../src/lib/razorpay.js");
+    const paymentResponse = {
+      id: "pay_provider_1",
+      entity: "payment",
+      order_id: "order_provider_1",
+      amount: 12_500,
+      currency: "INR",
+      status: "captured",
+      created_at: 1_700_000_000,
+    };
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      return calls === 1
+        ? jsonResponse(200, paymentResponse)
+        : jsonResponse(200, {
+            entity: "collection",
+            count: 1,
+            items: [paymentResponse],
+          });
+    }) as typeof fetch;
+    const client = createRazorpayClient(
+      { keyId: "key", keySecret: "secret" },
+      { fetchImpl },
+    );
+    const expected = {
+      orderId: "order_provider_1",
+      amount: 12_500,
+      currency: "INR",
+    };
+
+    await expect(
+      client.fetchPayment({
+        ...expected,
+        paymentId: "pay_provider_1",
+      }),
+    ).resolves.toMatchObject({
+      id: "pay_provider_1",
+      status: "captured",
+      createdAt: 1_700_000_000,
+    });
+    await expect(client.fetchOrderPayments(expected)).resolves.toHaveLength(1);
+  });
+});
+
 describe("verifyWebhookSignature", () => {
   it("accepts a valid HMAC-SHA256 over the raw body", async () => {
     const { verifyWebhookSignature } = await import(

@@ -1,6 +1,7 @@
 import { redis } from "../../config/redis.js";
 import { HttpError } from "../../middleware/errorHandler.js";
 import type { CartOwner } from "../cart/cart.service.js";
+import { appendCartRevision } from "../cart/cartRevision.service.js";
 import { getBundleForCart } from "./bundle.service.js";
 
 const TTL_SEC = 60 * 60 * 24 * 30;
@@ -134,6 +135,7 @@ export async function hydrateBundleCart(owner: CartOwner): Promise<{
       pipeline.hset(key, bundleId, quantity);
     }
     if (bundleIds.length > prunes.length) pipeline.expire(key, TTL_SEC);
+    appendCartRevision(pipeline, owner);
     await pipeline.exec();
   }
 
@@ -156,8 +158,10 @@ export async function addBundle(
   const key = bundleOwnerKey(owner);
   const current = Number((await redis.hget(key, bundleId)) ?? 0);
   const effective = Math.min(current + quantity, bundle.availableUnits);
-  await redis.hset(key, bundleId, String(effective));
-  await redis.expire(key, TTL_SEC);
+  const pipeline = redis.multi();
+  pipeline.hset(key, bundleId, String(effective));
+  pipeline.expire(key, TTL_SEC);
+  await appendCartRevision(pipeline, owner).exec();
   return effective;
 }
 
@@ -168,23 +172,31 @@ export async function setBundleQuantity(
 ) {
   const key = bundleOwnerKey(owner);
   if (quantity <= 0) {
-    await redis.hdel(key, bundleId);
+    const pipeline = redis.multi();
+    pipeline.hdel(key, bundleId);
+    await appendCartRevision(pipeline, owner).exec();
     return;
   }
   const bundle = await getBundleForCart(bundleId);
   if (bundle.availableUnits <= 0) {
     throw new HttpError(409, "bundle_out_of_stock", "This bundle is out of stock");
   }
-  await redis.hset(key, bundleId, String(Math.min(quantity, bundle.availableUnits)));
-  await redis.expire(key, TTL_SEC);
+  const pipeline = redis.multi();
+  pipeline.hset(key, bundleId, String(Math.min(quantity, bundle.availableUnits)));
+  pipeline.expire(key, TTL_SEC);
+  await appendCartRevision(pipeline, owner).exec();
 }
 
 export async function removeBundle(owner: CartOwner, bundleId: string) {
-  await redis.hdel(bundleOwnerKey(owner), bundleId);
+  const pipeline = redis.multi();
+  pipeline.hdel(bundleOwnerKey(owner), bundleId);
+  await appendCartRevision(pipeline, owner).exec();
 }
 
 export async function clearBundleCart(owner: CartOwner) {
-  await redis.del(bundleOwnerKey(owner));
+  const pipeline = redis.multi();
+  pipeline.del(bundleOwnerKey(owner));
+  await appendCartRevision(pipeline, owner).exec();
 }
 
 export async function mergeGuestBundles(guestSessionId: string, userId: string) {
@@ -218,5 +230,7 @@ export async function mergeGuestBundles(guestSessionId: string, userId: string) 
     pipeline.hset(userKey, ...fields);
     pipeline.expire(userKey, TTL_SEC);
   }
+  appendCartRevision(pipeline, guestOwner);
+  appendCartRevision(pipeline, userOwner);
   await pipeline.exec();
 }

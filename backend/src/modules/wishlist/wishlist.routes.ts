@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../../middleware/auth.js";
 import { rateLimit } from "../../middleware/rateLimit.js";
+import { rateLimitPolicies } from "../../config/rateLimitConfig.js";
 import {
   addWishlistItem,
   listWishlist,
@@ -9,8 +10,14 @@ import {
 } from "./wishlist.service.js";
 
 const router = Router();
-router.use(rateLimit({ keyPrefix: "wishlist", max: 60, windowSec: 60 }));
-router.use(requireAuth);
+router.use(
+  requireAuth,
+  rateLimit({
+    keyPrefix: "wishlist",
+    ...rateLimitPolicies.authenticated,
+    accountKeyBy: (req) => req.auth?.userId,
+  }),
+);
 
 router.get("/", async (req, res, next) => {
   try {

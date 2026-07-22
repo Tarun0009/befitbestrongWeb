@@ -4,7 +4,7 @@ import { prisma } from "../../config/db.js";
 import { HttpError } from "../../middleware/errorHandler.js";
 import { invalidateCatalog } from "../products/products.service.js";
 import { queueBackInStockNotifications } from "../wishlist/stockAlertEmail.service.js";
-import { requireAtLeastOneField } from "../../lib/validation.js";
+import { requireAtLeastOneField, safeHttpUrl } from "../../lib/validation.js";
 
 const router = Router();
 
@@ -18,10 +18,10 @@ function slugify(text: string): string {
 // -------- Categories --------
 
 const categoryBody = z.object({
-  name: z.string().min(1),
-  description: z.string().nullable().optional(),
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(1_000).nullable().optional(),
   parentId: z.string().cuid().nullable().optional(),
-});
+}).strict();
 const categoryPatchBody = requireAtLeastOneField(
   categoryBody.partial().strict(),
 );
@@ -108,34 +108,34 @@ router.delete("/categories/:id", async (req, res, next) => {
 // -------- Products --------
 
 const variantBody = z.object({
-  sku: z.string().min(1),
-  size: z.string().nullable().optional(),
-  color: z.string().nullable().optional(),
+  sku: z.string().trim().min(1).max(100),
+  size: z.string().trim().max(80).nullable().optional(),
+  color: z.string().trim().max(80).nullable().optional(),
   price: z.number().int().nonnegative(),
   stock: z.number().int().nonnegative(),
-});
+}).strict();
 
 const productBody = z.object({
-  name: z.string().min(1),
-  description: z.string().min(1),
+  name: z.string().trim().min(1).max(200),
+  description: z.string().trim().min(1).max(5_000),
   categoryId: z.string().cuid(),
   basePrice: z.number().int().nonnegative(),
   // MRP for strike-through pricing on the storefront card. Null / undefined
   // removes the sale ribbon.
   compareAtPrice: z.number().int().nonnegative().nullable().optional(),
   dispatchHint: z.string().max(80).nullable().optional(),
-  currency: z.string().default("INR"),
+  currency: z.string().trim().regex(/^[A-Z]{3}$/).default("INR"),
   active: z.boolean().default(true),
   images: z
     .array(
       z.object({
-        url: z.string().url(),
-        alt: z.string().optional(),
-      }),
+        url: safeHttpUrl,
+        alt: z.string().trim().max(200).optional(),
+      }).strict(),
     )
     .default([]),
-  variants: z.array(variantBody).default([]),
-});
+  variants: z.array(variantBody).max(100).default([]),
+}).strict();
 const productPatchBody = requireAtLeastOneField(
   productBody.omit({ images: true, variants: true }).partial().strict(),
 );
@@ -149,8 +149,9 @@ router.get("/products", async (req, res, next) => {
       .object({
         page: z.coerce.number().int().positive().default(1),
         limit: z.coerce.number().int().positive().max(100).default(20),
-        search: z.string().optional(),
+        search: z.string().trim().max(120).optional(),
       })
+      .strict()
       .parse(req.query);
 
     const where = q.search
@@ -358,10 +359,10 @@ router.delete("/variants/:variantId", async (req, res, next) => {
 // -------- Product images --------
 
 const imageBody = z.object({
-  url: z.string().url(),
-  alt: z.string().max(200).optional(),
+  url: safeHttpUrl,
+  alt: z.string().trim().max(200).optional(),
   position: z.number().int().nonnegative().optional(),
-});
+}).strict();
 
 router.post("/products/:id/images", async (req, res, next) => {
   try {
@@ -389,7 +390,7 @@ router.post("/products/:id/images", async (req, res, next) => {
 const imagePatchBody = requireAtLeastOneField(
   z
     .object({
-      url: z.string().url().optional(),
+      url: safeHttpUrl.optional(),
       alt: z.string().max(200).nullable().optional(),
       position: z.number().int().nonnegative().optional(),
     })

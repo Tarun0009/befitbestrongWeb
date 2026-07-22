@@ -34,6 +34,12 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum PaymentAttemptStatus {
+  AUTHORIZED
+  CAPTURED
+  FAILED
+}
+
 enum PaymentMethod {
   PREPAID
   COD
@@ -394,6 +400,7 @@ model CheckoutAttempt {
   ownerHash      String
   keyHash        String
   requestHash    String
+  cartRevision   String?
   status         CheckoutAttemptStatus @default(PROCESSING)
   orderId        String?               @unique
   order          Order?                @relation(fields: [orderId], references: [id], onDelete: SetNull)
@@ -406,6 +413,7 @@ model CheckoutAttempt {
   updatedAt      DateTime              @updatedAt
 
   @@unique([ownerHash, keyHash])
+  @@unique([ownerHash, cartRevision])
   @@index([status, leaseExpiresAt])
   @@index([createdAt])
 }
@@ -442,12 +450,16 @@ model Order {
   providerOrderId      String?              @unique // Razorpay order id
   reservationExpiresAt DateTime?
   reservationExpiredAt DateTime?
+  paymentNextReconcileAt DateTime?
+  paymentLastReconciledAt DateTime?
+  paymentReconcileAttempts Int              @default(0)
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([status])
   @@index([status, reservationExpiresAt])
+  @@index([status, paymentNextReconcileAt])
 }
 
 model Shipment {
@@ -567,11 +579,29 @@ model Payment {
   status            PaymentStatus @default(CREATED)
   rawPayload        Json?
   refundIntents     RefundIntent[]
+  attempts          PaymentAttempt[]
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
   @@index([providerOrderId])
   @@index([providerPaymentId])
+}
+
+model PaymentAttempt {
+  id                String               @id @default(cuid())
+  paymentId         String
+  payment           Payment              @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  providerPaymentId String               @unique
+  providerOrderId   String
+  status            PaymentAttemptStatus
+  amount            Int
+  currency          String
+  rawPayload        Json?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([paymentId, createdAt(sort: Desc)])
+  @@index([providerOrderId, status])
 }
 
 model RefundIntent {
@@ -713,6 +743,10 @@ model WebhookEvent {
   processingMessage String?
   localOrderId      String?
   providerPaymentId String?
+  deliveryAttempts  Int                       @default(0)
+  lastAttemptAt     DateTime?
+  deadLetteredAt    DateTime?
+  deadLetterReason  String?
   processedAt       DateTime?
   createdAt         DateTime                  @default(now())
 
@@ -720,6 +754,7 @@ model WebhookEvent {
   @@index([provider, eventType])
   @@index([provider, outcome, createdAt])
   @@index([localOrderId, createdAt])
+  @@index([processedAt, deadLetteredAt, createdAt])
 }
 
 model Coupon {

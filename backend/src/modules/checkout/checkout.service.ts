@@ -9,10 +9,17 @@ import {
   getCart,
   type CartOwner,
 } from "../cart/cart.service.js";
+import { getCartRevision } from "../cart/cartRevision.service.js";
 import {
   createRazorpayOrder,
+  fetchRazorpayPayment,
   isRazorpayConfigured,
+  verifyCheckoutPaymentSignature,
 } from "../../lib/razorpay.js";
+import {
+  processProviderPaymentSnapshot,
+  reconcilePendingPayment,
+} from "../payments/paymentReconciliation.service.js";
 import { recordInitialHistory, transition } from "../orders/stateMachine.js";
 import {
   calculateCouponDiscount,
@@ -123,10 +130,12 @@ export async function createCheckoutSession(
     );
   }
 
+  const cartRevision = await getCartRevision(input.cartOwner);
   const claim = await acquireCheckoutAttempt({
     owner: input.cartOwner,
     idempotencyKey: input.idempotencyKey,
-    requestHash: checkoutRequestHash(input),
+    requestHash: checkoutRequestHash({ ...input, cartRevision }),
+    cartRevision,
   });
 
   if (claim.completed) {
@@ -139,7 +148,7 @@ export async function createCheckoutSession(
   try {
     const result = claim.attempt.orderId
       ? await resumeCheckoutSession(input, claim.attempt.id, claim.attempt.orderId)
-      : await createFreshCheckoutSession(input, claim.attempt.id);
+      : await createFreshCheckoutSession(input, claim.attempt.id, cartRevision);
     return { result, replayed: false };
   } catch (error) {
     await markCheckoutAttemptFailed(claim.attempt.id, error).catch(
@@ -157,12 +166,27 @@ export async function createCheckoutSession(
 async function createFreshCheckoutSession(
   input: CheckoutInput,
   checkoutAttemptId: string,
+  cartRevision: string,
 ): Promise<CheckoutResult> {
   // Coverage is authoritative and checked before any stock is reserved.
   const serviceArea = await requireServiceArea(input.address.pincode);
 
   // 1. Snapshot the cart. Server-side re-hydrate so we never trust client totals.
+  if ((await getCartRevision(input.cartOwner)) !== cartRevision) {
+    throw new HttpError(
+      409,
+      "cart_changed",
+      "Your cart changed while checkout was starting. Review it and try again.",
+    );
+  }
   const cart = await getCart(input.cartOwner);
+  if ((await getCartRevision(input.cartOwner)) !== cartRevision) {
+    throw new HttpError(
+      409,
+      "cart_changed",
+      "Your cart was updated while checkout was starting. Review it and try again.",
+    );
+  }
   if (cart.items.length === 0 && cart.bundles.length === 0) {
     throw new HttpError(400, "empty_cart", "Cart is empty");
   }
@@ -239,7 +263,12 @@ async function createFreshCheckoutSession(
       }
     }
 
-    for (const [variantId, request] of stockRequests) {
+    // Acquire variant locks in a deterministic order to prevent deadlocks
+    // between carts containing the same SKUs in a different insertion order.
+    const orderedStockRequests = [...stockRequests.entries()].sort(([left], [right]) =>
+      left.localeCompare(right),
+    );
+    for (const [variantId, request] of orderedStockRequests) {
       const result = await tx.productVariant.updateMany({
         where: { id: variantId, stock: { gte: request.quantity } },
         data: { stock: { decrement: request.quantity } },
@@ -446,7 +475,12 @@ async function finalizePrepaidCheckout(
   await prisma.$transaction([
     prisma.order.update({
       where: { id: order.id },
-      data: { providerOrderId: rzp.id },
+      data: {
+        providerOrderId: rzp.id,
+        paymentNextReconcileAt: new Date(
+          Date.now() + env.PAYMENT_RECONCILIATION_INITIAL_DELAY_SECONDS * 1000,
+        ),
+      },
     }),
     prisma.payment.upsert({
       where: { orderId: order.id },
@@ -619,7 +653,13 @@ async function findAccessibleOrder(
       ...(pendingOnly ? { status: "PENDING" as const } : {}),
       OR: access,
     },
-    select: { id: true, status: true },
+    select: {
+      id: true,
+      status: true,
+      paymentMethod: true,
+      providerOrderId: true,
+      payment: { select: { provider: true } },
+    },
   });
   if (!order) {
     throw new HttpError(404, "order_not_found", "Order not found");
@@ -637,13 +677,137 @@ export async function cancelCheckout(
     userId,
     guestAccessToken,
   );
-  if (order.status !== "PENDING") return;
+  if (order.status !== "PENDING") {
+    if (order.status === "CANCELLED" || order.status === "FAILED") return;
+    throw new HttpError(
+      409,
+      "checkout_not_cancellable",
+      "This order is already confirmed and cannot be cancelled as an incomplete payment.",
+    );
+  }
+
+  if (
+    order.paymentMethod === "PREPAID" &&
+    order.providerOrderId &&
+    order.payment?.provider === "razorpay"
+  ) {
+    let outcome;
+    try {
+      outcome = await reconcilePendingPayment(order.id);
+    } catch (error) {
+      logger.error({ err: error, orderId }, "cancel payment check failed");
+      throw new HttpError(
+        503,
+        "payment_status_unavailable",
+        "We could not confirm the payment status. Your order was not cancelled; try again shortly.",
+      );
+    }
+    if (outcome === "CAPTURED" || outcome === "TERMINAL") {
+      throw new HttpError(
+        409,
+        "payment_already_completed",
+        "Payment has completed, so this pending checkout was not cancelled.",
+      );
+    }
+    if (outcome === "ACTIVE") {
+      throw new HttpError(
+        409,
+        "payment_processing",
+        "Payment is still processing",
+      );
+    }
+  }
 
   await transition(prisma, order.id, "CANCELLED", {
     actor: userId
       ? { kind: "customer", userId, note: "user cancelled checkout" }
       : { kind: "guest", note: "guest cancelled checkout" },
   });
+}
+
+export async function verifyCheckoutPayment(input: {
+  userId: string | null;
+  guestAccessToken: string | null;
+  orderId: string;
+  providerOrderId: string;
+  providerPaymentId: string;
+  signature: string;
+}): Promise<{ orderId: string; status: "PAID" | "PROCESSING" }> {
+  await findAccessibleOrder(
+    input.orderId,
+    input.userId,
+    input.guestAccessToken,
+  );
+  const order = await prisma.order.findUnique({
+    where: { id: input.orderId },
+    include: { payment: true },
+  });
+  if (
+    !order ||
+    order.paymentMethod !== "PREPAID" ||
+    !order.providerOrderId ||
+    !order.payment ||
+    order.payment.provider !== "razorpay"
+  ) {
+    throw new HttpError(
+      409,
+      "payment_session_invalid",
+      "This order does not have a valid online payment session",
+    );
+  }
+  if (input.providerOrderId !== order.providerOrderId) {
+    throw new HttpError(
+      400,
+      "payment_order_mismatch",
+      "Payment details do not match this order",
+    );
+  }
+  if (
+    !verifyCheckoutPaymentSignature({
+      orderId: order.providerOrderId,
+      paymentId: input.providerPaymentId,
+      signature: input.signature,
+    })
+  ) {
+    throw new HttpError(
+      400,
+      "invalid_payment_signature",
+      "Payment verification failed",
+    );
+  }
+
+  const payment = await fetchRazorpayPayment({
+    paymentId: input.providerPaymentId,
+    orderId: order.providerOrderId,
+    amount: order.total,
+    currency: order.currency,
+  });
+  const result = await processProviderPaymentSnapshot(
+    payment,
+    "checkout_callback",
+  );
+  if (!result || result.outcome !== "PROCESSED") {
+    throw new HttpError(
+      409,
+      "payment_reconciliation_required",
+      "Payment was received but needs verification. Please contact support.",
+    );
+  }
+  const refreshed = await prisma.order.findUniqueOrThrow({
+    where: { id: order.id },
+    select: { status: true },
+  });
+  if (refreshed.status === "PAID") {
+    return { orderId: order.id, status: "PAID" };
+  }
+  if (payment.status === "authorized") {
+    return { orderId: order.id, status: "PROCESSING" };
+  }
+  throw new HttpError(
+    409,
+    "payment_not_captured",
+    "Payment is not complete. You have not been charged.",
+  );
 }
 
 export async function devCompleteOrder(

@@ -63,6 +63,7 @@ export async function acquireCheckoutAttempt(input: {
   owner: CartOwner;
   idempotencyKey: string;
   requestHash: string;
+  cartRevision: string;
 }): Promise<CheckoutAttemptClaim> {
   const now = new Date();
   const ownerHash = checkoutOwnerHash(input.owner);
@@ -74,6 +75,7 @@ export async function acquireCheckoutAttempt(input: {
         ownerHash,
         keyHash,
         requestHash: input.requestHash,
+        cartRevision: input.cartRevision,
         leaseExpiresAt: leaseFrom(now),
       },
     });
@@ -82,15 +84,67 @@ export async function acquireCheckoutAttempt(input: {
     if (!isUniqueViolation(error)) throw error;
   }
 
-  const existing = await prisma.checkoutAttempt.findUnique({
+  let existing = await prisma.checkoutAttempt.findUnique({
     where: { ownerHash_keyHash: { ownerHash, keyHash } },
   });
   if (!existing) {
-    throw new HttpError(
-      503,
-      "checkout_retry_required",
-      "Checkout state is temporarily unavailable. Please retry.",
-    );
+    const sameCart = await prisma.checkoutAttempt.findUnique({
+      where: {
+        ownerHash_cartRevision: {
+          ownerHash,
+          cartRevision: input.cartRevision,
+        },
+      },
+    });
+    if (!sameCart) {
+      throw new HttpError(
+        503,
+        "checkout_retry_required",
+        "Checkout state is temporarily unavailable. Please retry.",
+      );
+    }
+    if (sameCart.status === "FAILED") {
+      if (
+        sameCart.orderId &&
+        sameCart.requestHash !== input.requestHash
+      ) {
+        throw new HttpError(
+          409,
+          "checkout_recovery_required",
+          "A reserved order already exists for this cart. Retry the original checkout details or cancel that pending order.",
+        );
+      }
+      const recycled = await prisma.checkoutAttempt.updateMany({
+        where: { id: sameCart.id, status: "FAILED" },
+        data: {
+          keyHash,
+          requestHash: input.requestHash,
+          status: "PROCESSING",
+          leaseExpiresAt: leaseFrom(now),
+          failureStatus: null,
+          failureCode: null,
+          failureMessage: null,
+          completedAt: null,
+        },
+      });
+      if (recycled.count === 1) {
+        const attempt = await prisma.checkoutAttempt.findUniqueOrThrow({
+          where: { id: sameCart.id },
+        });
+        return { attempt, completed: false };
+      }
+    }
+    if (!existing) {
+      throw new HttpError(
+        409,
+        sameCart.status === "COMPLETED"
+          ? "cart_already_checked_out"
+          : "cart_checkout_in_progress",
+        sameCart.status === "COMPLETED"
+          ? "This cart was already submitted. Refresh your cart before paying again."
+          : "This cart is already being checked out in another tab.",
+      );
+    }
   }
 
   assertSameRequest(existing, input.requestHash);

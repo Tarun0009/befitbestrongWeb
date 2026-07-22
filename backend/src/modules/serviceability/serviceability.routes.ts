@@ -1,24 +1,18 @@
 import { Router } from "express";
 import { z } from "zod";
+import { optionalAuth } from "../../middleware/optionalAuth.js";
 import { rateLimit } from "../../middleware/rateLimit.js";
+import { rateLimitPolicies } from "../../config/rateLimitConfig.js";
 import { getServiceability } from "./serviceability.service.js";
 
 const router = Router();
-router.use(
-  rateLimit({
-    keyPrefix: "serviceability-preauth",
-    max: 300,
-    windowSec: 60,
-    keyBy: (req) => req.ip ?? "unknown",
-  }),
-);
+router.use(optionalAuth);
 const pincodeSchema = z.string().trim().regex(/^[1-9]\d{5}$/);
 
 const serviceabilityLookupLimiter = rateLimit({
   keyPrefix: "serviceability-lookup",
-  max: 30,
-  windowSec: 60 * 60,
-  keyBy: (req) => req.auth?.userId ?? req.ip ?? "unknown",
+  ...rateLimitPolicies.serviceability,
+  accountKeyBy: (req) => req.auth?.userId,
 });
 
 router.get(

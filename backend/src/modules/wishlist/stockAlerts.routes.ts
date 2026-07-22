@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../../middleware/auth.js";
+import { rateLimit } from "../../middleware/rateLimit.js";
+import { rateLimitPolicies } from "../../config/rateLimitConfig.js";
 import {
   listStockAlerts,
   subscribeStockAlert,
@@ -8,7 +10,14 @@ import {
 } from "./stockAlerts.service.js";
 
 const router = Router();
-router.use(requireAuth);
+router.use(
+  requireAuth,
+  rateLimit({
+    keyPrefix: "stock-alerts",
+    ...rateLimitPolicies.authenticated,
+    accountKeyBy: (req) => req.auth?.userId,
+  }),
+);
 
 router.get("/", async (req, res, next) => {
   try {

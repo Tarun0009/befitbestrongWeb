@@ -131,6 +131,7 @@ async function acquireRefundIntent(input: {
   reason: string;
 }): Promise<RefundIntent> {
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${input.orderId} FOR UPDATE`;
     const order = await tx.order.findUnique({
       where: { id: input.orderId },
       include: { payment: true },

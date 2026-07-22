@@ -121,6 +121,7 @@ router.get("/analytics/top-products", async (req, res, next) => {
         days: z.coerce.number().int().min(1).max(365).default(30),
         limit: z.coerce.number().int().min(1).max(20).default(5),
       })
+      .strict()
       .parse(req.query);
 
     // CTE aggregates units + revenue per product in the window; the outer

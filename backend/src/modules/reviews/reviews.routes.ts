@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../../middleware/auth.js";
+import { rateLimit } from "../../middleware/rateLimit.js";
+import { rateLimitPolicies } from "../../config/rateLimitConfig.js";
 import {
   createReview,
   getReviewEligibility,
@@ -8,23 +10,32 @@ import {
 } from "./reviews.service.js";
 
 const router = Router();
+const publicRateLimit = rateLimit({
+  keyPrefix: "reviews-public",
+  ...rateLimitPolicies.public,
+});
+const authenticatedRateLimit = rateLimit({
+  keyPrefix: "reviews-authenticated",
+  ...rateLimitPolicies.authenticated,
+  accountKeyBy: (req) => req.auth?.userId,
+});
 
 const slugParam = z.object({
   slug: z.string().trim().min(1).max(160),
-});
+}).strict();
 
 const pageQuery = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(30).default(10),
-});
+}).strict();
 
 const reviewBody = z.object({
   rating: z.number().int().min(1).max(5),
   title: z.string().trim().max(100).nullable().optional(),
   comment: z.string().trim().min(20).max(1000),
-});
+}).strict();
 
-router.get("/products/:slug", async (req, res, next) => {
+router.get("/products/:slug", publicRateLimit, async (req, res, next) => {
   try {
     const { slug } = slugParam.parse(req.params);
     const query = pageQuery.parse(req.query);
@@ -38,6 +49,7 @@ router.get("/products/:slug", async (req, res, next) => {
 router.get(
   "/products/:slug/eligibility",
   requireAuth,
+  authenticatedRateLimit,
   async (req, res, next) => {
     try {
       const { slug } = slugParam.parse(req.params);
@@ -49,7 +61,11 @@ router.get(
   },
 );
 
-router.post("/products/:slug", requireAuth, async (req, res, next) => {
+router.post(
+  "/products/:slug",
+  requireAuth,
+  authenticatedRateLimit,
+  async (req, res, next) => {
   try {
     const { slug } = slugParam.parse(req.params);
     const body = reviewBody.parse(req.body);
@@ -58,6 +74,7 @@ router.post("/products/:slug", requireAuth, async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
 export default router;

@@ -73,7 +73,7 @@ export const manualShipmentSchema = z.object({
   trackingUrl: httpUrl.optional(),
   estimatedDeliveryAt: z.coerce.date().optional(),
   note: z.string().trim().max(500).optional(),
-});
+}).strict();
 
 export type ManualShipmentInput = z.infer<typeof manualShipmentSchema>;
 
@@ -87,7 +87,7 @@ export const courierBookingSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
-});
+}).strict();
 
 export type CourierBookingInput = z.infer<typeof courierBookingSchema>;
 

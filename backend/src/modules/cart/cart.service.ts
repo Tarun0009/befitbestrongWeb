@@ -4,12 +4,13 @@ import { prisma } from "../../config/db.js";
 import { logger } from "../../config/logger.js";
 import { HttpError } from "../../middleware/errorHandler.js";
 import {
-  clearBundleCart,
   hydrateBundleCart,
   mergeGuestBundles,
+  bundleOwnerKey,
   type BundleCartLine,
   type BundleCartNotice,
 } from "../bundles/bundleCart.service.js";
+import { appendCartRevision } from "./cartRevision.service.js";
 
 /**
  * Cart storage.
@@ -82,10 +83,6 @@ export type CartNotice =
   | { kind: "inactive_product"; variantId: string }
   | BundleCartNotice;
 
-async function bumpTtl(key: string): Promise<void> {
-  await redis.expire(key, TTL_SEC);
-}
-
 async function readHash(key: string): Promise<Record<string, string>> {
   return redis.hgetall(key);
 }
@@ -96,7 +93,7 @@ export async function getCart(owner: CartOwner): Promise<Cart> {
     readHash(key),
     hydrateBundleCart(owner),
   ]);
-  const base = await hydrate(key, raw);
+  const base = await hydrate(owner, key, raw);
   const bundleSubtotal = bundleState.bundles.reduce(
     (sum, bundle) => sum + bundle.subtotal,
     0,
@@ -151,8 +148,10 @@ export async function addItem(
   const desired = current + qty;
   const effective = Math.min(desired, variant.stock);
 
-  await redis.hset(key, variantId, String(effective));
-  await bumpTtl(key);
+  const pipeline = redis.multi();
+  pipeline.hset(key, variantId, String(effective));
+  pipeline.expire(key, TTL_SEC);
+  await appendCartRevision(pipeline, owner).exec();
 
   const cart = await getCart(owner);
   return { cart, effective };
@@ -165,8 +164,10 @@ export async function setItemQty(
 ): Promise<Cart> {
   const key = ownerKey(owner);
   if (qty <= 0) {
-    await redis.hdel(key, variantId);
-    await bumpTtl(key);
+    const pipeline = redis.multi();
+    pipeline.hdel(key, variantId);
+    pipeline.expire(key, TTL_SEC);
+    await appendCartRevision(pipeline, owner).exec();
     return getCart(owner);
   }
 
@@ -182,8 +183,10 @@ export async function setItemQty(
   }
 
   const effective = Math.min(qty, variant.stock);
-  await redis.hset(key, variantId, String(effective));
-  await bumpTtl(key);
+  const pipeline = redis.multi();
+  pipeline.hset(key, variantId, String(effective));
+  pipeline.expire(key, TTL_SEC);
+  await appendCartRevision(pipeline, owner).exec();
   return getCart(owner);
 }
 
@@ -192,13 +195,18 @@ export async function removeItem(
   variantId: string,
 ): Promise<Cart> {
   const key = ownerKey(owner);
-  await redis.hdel(key, variantId);
-  await bumpTtl(key);
+  const pipeline = redis.multi();
+  pipeline.hdel(key, variantId);
+  pipeline.expire(key, TTL_SEC);
+  await appendCartRevision(pipeline, owner).exec();
   return getCart(owner);
 }
 
 export async function clearCart(owner: CartOwner): Promise<void> {
-  await Promise.all([redis.del(ownerKey(owner)), clearBundleCart(owner)]);
+  const pipeline = redis.multi();
+  pipeline.del(ownerKey(owner));
+  pipeline.del(bundleOwnerKey(owner));
+  await appendCartRevision(pipeline, owner).exec();
 }
 
 /**
@@ -257,6 +265,8 @@ export async function mergeGuestIntoUser(
     pipeline.hset(userKey, ...finalFields);
     pipeline.expire(userKey, TTL_SEC);
   }
+  appendCartRevision(pipeline, { type: "guest", id: guestSessionId });
+  appendCartRevision(pipeline, { type: "user", id: userId });
   await pipeline.exec();
   await mergeGuestBundles(guestSessionId, userId);
 
@@ -290,6 +300,7 @@ interface HydratedItems {
 }
 
 async function hydrate(
+  owner: CartOwner,
   key: string,
   raw: Record<string, string>,
 ): Promise<HydratedItems> {
@@ -388,6 +399,7 @@ async function hydrate(
     if (prunes.length > 0) pipeline.hdel(key, ...prunes);
     for (const [vid, qty] of clamps) pipeline.hset(key, vid, qty);
     if (Object.keys(raw).length > prunes.length) pipeline.expire(key, TTL_SEC);
+    appendCartRevision(pipeline, owner);
     await pipeline.exec();
   }
 

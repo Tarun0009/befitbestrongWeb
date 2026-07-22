@@ -176,6 +176,19 @@ export interface CheckoutSessionResponse {
   guestAccessToken: string | null;
   reservationExpiresAt: string | null;
 }
+export interface VerifyCheckoutPaymentInput {
+  orderId: string;
+  guestAccessToken?: string;
+  providerOrderId: string;
+  providerPaymentId: string;
+  signature: string;
+}
+
+export interface VerifyCheckoutPaymentResponse {
+  orderId: string;
+  status: "PAID" | "PROCESSING";
+}
+
 
 export interface CheckoutConfig {
   paymentsEnabled: boolean;
@@ -402,6 +415,20 @@ export const ordersApi = createApi({
         body,
       }),
       invalidatesTags: ["Orders"],
+    }),
+    verifyCheckoutPayment: builder.mutation<
+      VerifyCheckoutPaymentResponse,
+      VerifyCheckoutPaymentInput
+    >({
+      query: (body) => ({
+        url: "/checkout/verify-payment",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (_result, _error, arg) => [
+        "Orders",
+        { type: "Order", id: arg.orderId },
+      ],
     }),
     cancelCheckout: builder.mutation<
       void,
@@ -742,6 +769,7 @@ export const {
   useCancelCheckoutMutation,
   useDevCompleteOrderMutation,
   useListOrdersQuery,
+  useVerifyCheckoutPaymentMutation,
   useGetOrderQuery,
   useCancelOrderMutation,
   useAdminListCouponsQuery,

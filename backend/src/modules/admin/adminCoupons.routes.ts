@@ -17,7 +17,7 @@ const couponFields = z.object({
   startsAt: z.coerce.date().optional().nullable(),
   endsAt: z.coerce.date().optional().nullable(),
   active: z.boolean().default(true),
-});
+}).strict();
 const couponPatchFields = requireAtLeastOneField(
   couponFields.partial().strict(),
 );

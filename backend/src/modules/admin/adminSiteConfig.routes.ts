@@ -4,7 +4,9 @@ import {
   getAdminSiteConfig,
   updateSiteConfig,
 } from "../siteConfig/siteConfig.service.js";
-import { requireAtLeastOneField } from "../../lib/validation.js";
+import { requireAtLeastOneField, safeHttpUrl } from "../../lib/validation.js";
+
+import { safeNavigationHref } from '../../lib/validation.js';
 
 const router = Router();
 
@@ -25,16 +27,16 @@ const patchBody = requireAtLeastOneField(
     announcementText: z.string().min(1).max(240).optional(),
     announcementCode: z.string().max(40).nullable().optional(),
     announcementCtaText: z.string().max(40).nullable().optional(),
-    announcementCtaHref: z.string().max(200).nullable().optional(),
+    announcementCtaHref: safeNavigationHref.nullable().optional(),
     // Hero
     heroEyebrow: z.string().min(1).max(60).optional(),
     heroHeadline: z.string().min(1).max(120).optional(),
     heroHighlight: z.string().max(80).nullable().optional(),
     heroSubtitle: z.string().min(1).max(400).optional(),
     heroPrimaryLabel: z.string().min(1).max(60).optional(),
-    heroPrimaryHref: z.string().min(1).max(200).optional(),
+    heroPrimaryHref: safeNavigationHref,
     heroSecondaryLabel: z.string().max(60).nullable().optional(),
-    heroSecondaryHref: z.string().max(200).nullable().optional(),
+    heroSecondaryHref: safeNavigationHref.nullable().optional(),
     // Featured
     featuredProductIds: z.array(z.string().cuid()).max(12).optional(),
     // Multi-slide hero carousel
@@ -46,11 +48,11 @@ const patchBody = requireAtLeastOneField(
           highlight: z.string().max(80).nullable().optional(),
           subtitle: z.string().max(400),
           primaryLabel: z.string().max(60),
-          primaryHref: z.string().max(200),
+          primaryHref: safeNavigationHref,
           secondaryLabel: z.string().max(60).nullable().optional(),
-          secondaryHref: z.string().max(200).nullable().optional(),
-          imageUrl: z.string().url().nullable().optional(),
-        }),
+          secondaryHref: safeNavigationHref.nullable().optional(),
+          imageUrl: safeHttpUrl.nullable().optional(),
+        }).strict(),
       )
       .max(6)
       .optional(),
@@ -60,7 +62,7 @@ const patchBody = requireAtLeastOneField(
         z.object({
           threshold: z.number().int().nonnegative(),
           reward: z.string().min(1).max(80),
-        }),
+        }).strict(),
       )
       .max(8)
       .optional(),
@@ -70,7 +72,7 @@ const patchBody = requireAtLeastOneField(
     spotlightTitle: z.string().max(120).nullable().optional(),
     spotlightBody: z.string().max(400).nullable().optional(),
     spotlightCtaLabel: z.string().max(40).nullable().optional(),
-    spotlightCtaHref: z.string().max(200).nullable().optional(),
+    spotlightCtaHref: safeNavigationHref.nullable().optional(),
     })
     .strict(),
 );

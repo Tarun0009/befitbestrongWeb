@@ -7,6 +7,7 @@ import {
   listBundleVariantOptions,
   updateBundle,
 } from "./bundle.service.js";
+import { safeHttpUrl } from "../../lib/validation.js";
 
 const router = Router();
 
@@ -14,7 +15,7 @@ const writeBody = z
   .object({
     name: z.string().trim().min(3).max(120),
     description: z.string().trim().min(10).max(1000),
-    imageUrl: z.string().url().nullable().optional(),
+    imageUrl: safeHttpUrl.nullable().optional(),
     active: z.boolean().default(true),
     pricingType: z.enum(["FIXED_PRICE", "PERCENTAGE_OFF"]),
     value: z.number().int().positive(),
@@ -25,7 +26,7 @@ const writeBody = z
         z.object({
           variantId: z.string().cuid(),
           quantity: z.number().int().min(1).max(20),
-        }),
+        }).strict(),
       )
       .min(2)
       .max(20),

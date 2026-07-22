@@ -11,9 +11,9 @@ const listQuery = z.object({
   limit: z.coerce.number().int().positive().max(50).default(20),
   q: z.string().trim().max(120).optional(),
   role: z.enum(["CUSTOMER", "ADMIN"]).optional(),
-});
+}).strict();
 
-const idParam = z.object({ id: z.string().cuid() });
+const idParam = z.object({ id: z.string().cuid() }).strict();
 
 router.get("/users", async (req, res, next) => {
   try {

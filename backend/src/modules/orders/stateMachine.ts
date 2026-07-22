@@ -144,6 +144,45 @@ export async function transition(
   }
 
   const updatedOrder = await db.$transaction(async (tx) => {
+    // Serialize every commercial transition for this order. The optimistic
+    // update below remains as a second guard, but the row lock also makes
+    // payment, cancellation, shipping and refund decisions observe one order.
+    await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${orderId} FOR UPDATE`;
+    const locked = await tx.order.findUniqueOrThrow({
+      where: { id: orderId },
+      select: { status: true },
+    });
+    if (locked.status !== before.status) {
+      throw new HttpError(
+        409,
+        "order_status_changed",
+        "Order status changed while this operation was waiting; refresh and retry",
+      );
+    }
+    if (to === "SHIPPED") {
+      const activeRefunds = await tx.refundIntent.count({
+        where: {
+          orderId,
+          status: {
+            in: [
+              "REQUESTED",
+              "PROCESSING",
+              "PENDING",
+              "RECONCILIATION_REQUIRED",
+              "PROCESSED",
+            ],
+          },
+        },
+      });
+      if (activeRefunds > 0) {
+        throw new HttpError(
+          409,
+          "refund_in_progress",
+          "This order has a refund in progress and cannot be shipped",
+        );
+      }
+    }
+
     if (opts.transactionWork) {
       await opts.transactionWork(tx);
     }

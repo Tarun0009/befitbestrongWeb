@@ -53,6 +53,7 @@ router.get("/fulfillment/shipments", async (req, res, next) => {
         status: z.nativeEnum(ShipmentStatus).optional(),
         provider: z.string().trim().min(1).max(50).optional(),
       })
+      .strict()
       .parse(req.query);
     const where = {
       ...(query.status ? { status: query.status } : {}),

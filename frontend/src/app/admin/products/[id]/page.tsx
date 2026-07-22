@@ -288,7 +288,7 @@ function CoreFields({ product }: { product: AdminProductDetail }) {
 function VariantEditor({ product }: { product: AdminProductDetail }) {
   const [createVariant, { isLoading: creating }] =
     useAdminCreateVariantMutation();
-  const [deleteVariant] = useAdminDeleteVariantMutation();
+  const [deleteVariant, { isLoading: deleting }] = useAdminDeleteVariantMutation();
 
   const [draft, setDraft] = useState({
     sku: "",
@@ -353,6 +353,7 @@ function VariantEditor({ product }: { product: AdminProductDetail }) {
               variant={v}
               productId={product.id}
               onDelete={() => handleDelete(v.id)}
+              deleting={deleting}
             />
           ))}
         </ul>
@@ -416,10 +417,12 @@ function VariantRow({
   variant,
   productId,
   onDelete,
+  deleting,
 }: {
   variant: AdminProductDetail["variants"][number];
   productId: string;
   onDelete: () => void;
+  deleting: boolean;
 }) {
   const [updateVariant, { isLoading }] = useAdminUpdateVariantMutation();
   const [sku, setSku] = useState(variant.sku);
@@ -513,6 +516,7 @@ function VariantRow({
       <button
         type="button"
         onClick={onDelete}
+        disabled={deleting || isLoading}
         className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted"
         aria-label="Delete variant"
       >
@@ -526,7 +530,7 @@ function VariantRow({
 
 function ImageEditor({ product }: { product: AdminProductDetail }) {
   const [addImage, { isLoading: adding }] = useAdminAddImageMutation();
-  const [deleteImage] = useAdminDeleteImageMutation();
+  const [deleteImage, { isLoading: deleting }] = useAdminDeleteImageMutation();
   const [url, setUrl] = useState("");
   const [alt, setAlt] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -594,7 +598,8 @@ function ImageEditor({ product }: { product: AdminProductDetail }) {
               <button
                 type="button"
                 onClick={() => handleDelete(img.id)}
-                className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted"
+                disabled={deleting || adding}
+                className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40"
                 aria-label="Remove image"
               >
                 ×

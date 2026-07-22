@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../../middleware/auth.js";
 import { rateLimit } from "../../middleware/rateLimit.js";
+import { rateLimitPolicies } from "../../config/rateLimitConfig.js";
 import {
   controlSubscription,
   enrollSubscription,
@@ -9,8 +10,14 @@ import {
 } from "./subscription.service.js";
 
 const router = Router();
-router.use(rateLimit({ keyPrefix: "subscriptions", max: 60, windowSec: 60 }));
-router.use(requireAuth);
+router.use(
+  requireAuth,
+  rateLimit({
+    keyPrefix: "subscriptions",
+    ...rateLimitPolicies.authenticated,
+    accountKeyBy: (req) => req.auth?.userId,
+  }),
+);
 
 router.get("/", async (req, res, next) => {
   try {
@@ -27,7 +34,7 @@ router.post("/", async (req, res, next) => {
       orderId: z.string().cuid(),
       quantity: z.number().int().min(1).max(20).default(1),
       frequencyDays: z.number().int().min(7).max(365),
-    }).parse(req.body);
+    }).strict().parse(req.body);
     res.status(201).json(
       await enrollSubscription(req.auth!.userId, body),
     );

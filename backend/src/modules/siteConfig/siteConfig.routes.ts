@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { getPublicSiteConfig } from "./siteConfig.service.js";
+import { rateLimit } from "../../middleware/rateLimit.js";
+import { rateLimitPolicies } from "../../config/rateLimitConfig.js";
 
 const router = Router();
+router.use(rateLimit({ keyPrefix: "site-config", ...rateLimitPolicies.public }));
 
 // Public — used by the storefront header + homepage. Cached with a 10 min TTL
 // under a tag that the admin editor invalidates on write.
