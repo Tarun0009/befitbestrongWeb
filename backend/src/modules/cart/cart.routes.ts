@@ -191,15 +191,14 @@ router.post("/merge", async (req, res, next) => {
     const sid = req.cookies?.[CART_COOKIE] as string | undefined;
     if (!sid) {
       const cart = await getCart({ type: "user", id: req.auth.userId });
-      return res.json({ cart, merged: 0 });
+      return res.json({
+        cart,
+        summary: { addedLines: 0, bumpedLines: 0, cappedLines: 0, droppedLines: 0 },
+      });
     }
-    const before = await getCart({ type: "user", id: req.auth.userId });
-    const cart = await mergeGuestIntoUser(sid, req.auth.userId);
+    const { cart, summary } = await mergeGuestIntoUser(sid, req.auth.userId);
     res.clearCookie(CART_COOKIE, { path: "/" });
-    res.json({
-      cart,
-      merged: Math.max(0, cart.count - before.count),
-    });
+    res.json({ cart, summary });
   } catch (err) {
     next(err);
   }

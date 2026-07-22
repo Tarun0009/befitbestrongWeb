@@ -5,6 +5,8 @@ import type { CartOwner } from "../cart/cart.service.js";
 import {
   checkoutKeyHash,
   checkoutOwnerHash,
+  checkoutRequestHash,
+  type CheckoutRequestIdentity,
 } from "./checkoutIdempotency.policy.js";
 
 const LEASE_MS = 2 * 60 * 1000;
@@ -62,19 +64,23 @@ function throwInProgress(attempt: CheckoutAttempt, now: Date): never {
 export async function acquireCheckoutAttempt(input: {
   owner: CartOwner;
   idempotencyKey: string;
-  requestHash: string;
+  requestIdentity: Omit<CheckoutRequestIdentity, "cartRevision">;
   cartRevision: string;
 }): Promise<CheckoutAttemptClaim> {
   const now = new Date();
   const ownerHash = checkoutOwnerHash(input.owner);
   const keyHash = checkoutKeyHash(input.idempotencyKey);
+  const requestHash = checkoutRequestHash({
+    ...input.requestIdentity,
+    cartRevision: input.cartRevision,
+  });
 
   try {
     const attempt = await prisma.checkoutAttempt.create({
       data: {
         ownerHash,
         keyHash,
-        requestHash: input.requestHash,
+        requestHash,
         cartRevision: input.cartRevision,
         leaseExpiresAt: leaseFrom(now),
       },
@@ -106,7 +112,7 @@ export async function acquireCheckoutAttempt(input: {
     if (sameCart.status === "FAILED") {
       if (
         sameCart.orderId &&
-        sameCart.requestHash !== input.requestHash
+        sameCart.requestHash !== requestHash
       ) {
         throw new HttpError(
           409,
@@ -118,7 +124,7 @@ export async function acquireCheckoutAttempt(input: {
         where: { id: sameCart.id, status: "FAILED" },
         data: {
           keyHash,
-          requestHash: input.requestHash,
+          requestHash,
           status: "PROCESSING",
           leaseExpiresAt: leaseFrom(now),
           failureStatus: null,
@@ -147,7 +153,11 @@ export async function acquireCheckoutAttempt(input: {
     }
   }
 
-  assertSameRequest(existing, input.requestHash);
+  const existingRequestHash = checkoutRequestHash({
+    ...input.requestIdentity,
+    cartRevision: existing.cartRevision ?? input.cartRevision,
+  });
+  assertSameRequest(existing, existingRequestHash);
   if (existing.status === "COMPLETED") {
     return { attempt: existing, completed: true };
   }

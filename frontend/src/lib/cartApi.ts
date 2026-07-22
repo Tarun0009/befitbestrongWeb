@@ -70,6 +70,15 @@ export interface CartLine {
   cappedByStock: boolean;
 }
 
+/** Per-line stats returned by POST /cart/merge — powers the "we merged N
+ *  items from your guest cart" toast in AuthBridge. */
+export interface MergeSummary {
+  addedLines: number;
+  bumpedLines: number;
+  cappedLines: number;
+  droppedLines: number;
+}
+
 
 export interface BundleCartLine {
   bundleId: string;
@@ -173,6 +182,13 @@ export const cartApi = createApi({
   reducerPath: "cartApi",
   baseQuery: baseQueryWithRefresh,
   tagTypes: ["Cart"],
+  // Sync cross-tab / multi-device: refetch the cart when the tab regains
+  // focus or the network reconnects. Cheap on the wire (one hydrated cart
+  // read), catches "quantity changed in another tab" without a page reload.
+  // setupListeners(store.dispatch) in store.ts is what actually wires the
+  // window `focus` / `online` events into RTK Query's dispatch.
+  refetchOnFocus: true,
+  refetchOnReconnect: true,
   endpoints: (builder) => ({
     getCart: builder.query<Cart, void>({
       query: () => "/cart",
@@ -323,7 +339,7 @@ export const cartApi = createApi({
       invalidatesTags: ["Cart"],
     }),
     mergeGuestCart: builder.mutation<
-      { cart: Cart; merged: number },
+      { cart: Cart; summary: MergeSummary },
       void
     >({
       query: () => ({ url: "/cart/merge", method: "POST" }),

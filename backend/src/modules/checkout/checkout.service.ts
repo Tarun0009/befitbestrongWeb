@@ -32,7 +32,6 @@ import {
 import { createOrderAdminNotification } from "../notifications/adminNotification.service.js";
 import { queueOrderStatusEmail } from "../orders/orderEmail.service.js";
 import { queueAdminOrderNotificationEmail } from "../notifications/adminOrderEmail.service.js";
-import { checkoutRequestHash } from "./checkoutIdempotency.policy.js";
 import {
   acquireCheckoutAttempt,
   markCheckoutAttemptFailed,
@@ -134,7 +133,13 @@ export async function createCheckoutSession(
   const claim = await acquireCheckoutAttempt({
     owner: input.cartOwner,
     idempotencyKey: input.idempotencyKey,
-    requestHash: checkoutRequestHash({ ...input, cartRevision }),
+    requestIdentity: {
+      userId: input.userId,
+      contactEmail: input.contactEmail,
+      couponCode: input.couponCode,
+      address: input.address,
+      paymentMethod: input.paymentMethod,
+    },
     cartRevision,
   });
 

@@ -144,14 +144,24 @@ export async function addItem(
     throw new HttpError(409, "out_of_stock", "Variant is out of stock");
   }
 
-  const current = Number((await redis.hget(key, variantId)) ?? 0);
-  const desired = current + qty;
-  const effective = Math.min(desired, variant.stock);
-
+  // HINCRBY is atomic — no read-modify-write race when a user double-clicks
+  // "Add to cart" or two tabs increment the same variant simultaneously.
+  // Contrast HGET + compute + HSET, which loses one of the two increments in
+  // the collision window.
+  //
+  // If two adds race and both land above stock, both will separately clamp to
+  // `variant.stock` — the final value converges (never above stock).
   const pipeline = redis.multi();
-  pipeline.hset(key, variantId, String(effective));
+  pipeline.hincrby(key, variantId, qty);
   pipeline.expire(key, TTL_SEC);
-  await appendCartRevision(pipeline, owner).exec();
+  const results = await appendCartRevision(pipeline, owner).exec();
+  const afterIncrement = Number(results?.[0]?.[1] ?? qty);
+
+  let effective = afterIncrement;
+  if (afterIncrement > variant.stock) {
+    await redis.hset(key, variantId, String(variant.stock));
+    effective = variant.stock;
+  }
 
   const cart = await getCart(owner);
   return { cart, effective };
@@ -209,32 +219,64 @@ export async function clearCart(owner: CartOwner): Promise<void> {
   await appendCartRevision(pipeline, owner).exec();
 }
 
+export interface MergeSummary {
+  /** Distinct variants that were added to the user cart for the first time. */
+  addedLines: number;
+  /** Existing user-cart lines whose quantity increased due to the merge. */
+  bumpedLines: number;
+  /** Lines from the guest cart that couldn't fully merge because they
+   *  exceeded current stock — user still gets them, just capped. */
+  cappedLines: number;
+  /** Lines dropped because the variant is now missing / inactive. */
+  droppedLines: number;
+}
+
+export interface MergeResult {
+  cart: Cart;
+  summary: MergeSummary;
+}
+
 /**
  * Merge a guest cart into a user cart. Sums quantities per variant, then caps
  * each line at the variant's current stock. Deletes the guest hash. Safe to
  * call when the guest cart is empty (no-op).
+ *
+ * Returns per-line stats so the frontend can surface a "we merged N items
+ * from your guest cart" notice rather than silently changing quantities.
  */
 export async function mergeGuestIntoUser(
   guestSessionId: string,
   userId: string,
-): Promise<Cart> {
+): Promise<MergeResult> {
   const guestKey = ownerKey({ type: "guest", id: guestSessionId });
   const userKey = ownerKey({ type: "user", id: userId });
 
   const guest = await readHash(guestKey);
-  const variantIds = Object.keys(guest);
+  const guestVariantIds = Object.keys(guest);
 
-  if (variantIds.length === 0) {
+  const emptySummary: MergeSummary = {
+    addedLines: 0,
+    bumpedLines: 0,
+    cappedLines: 0,
+    droppedLines: 0,
+  };
+
+  if (guestVariantIds.length === 0) {
     await redis.del(guestKey);
     await mergeGuestBundles(guestSessionId, userId);
-    return getCart({ type: "user", id: userId });
+    return {
+      cart: await getCart({ type: "user", id: userId }),
+      summary: emptySummary,
+    };
   }
 
   const user = await readHash(userKey);
+  const userQtyById = new Map<string, number>(
+    Object.entries(user).map(([vid, q]) => [vid, Number(q) || 0]),
+  );
+
   const merged: Record<string, number> = {};
-  for (const [vid, qtyStr] of Object.entries(user)) {
-    merged[vid] = Number(qtyStr) || 0;
-  }
+  for (const [vid, q] of userQtyById) merged[vid] = q;
   for (const [vid, qtyStr] of Object.entries(guest)) {
     merged[vid] = (merged[vid] ?? 0) + (Number(qtyStr) || 0);
   }
@@ -248,16 +290,34 @@ export async function mergeGuestIntoUser(
     variants.map((v) => [v.id, v.product.active ? v.stock : 0]),
   );
 
+  const summary: MergeSummary = { ...emptySummary };
   const pipeline = redis.multi();
   pipeline.del(guestKey);
 
   const finalFields: string[] = [];
-  for (const [vid, qty] of Object.entries(merged)) {
+  for (const [vid, wantedQty] of Object.entries(merged)) {
     const cap = stockById.get(vid) ?? 0;
-    const effective = Math.min(qty, cap);
-    if (effective > 0) {
-      finalFields.push(vid, String(effective));
+    const effective = Math.min(wantedQty, cap);
+    const previous = userQtyById.get(vid) ?? 0;
+    const camFromGuest = guestVariantIds.includes(vid);
+
+    if (effective <= 0) {
+      // Variant vanished or is inactive → dropped only if it came from guest
+      // (existing user lines that suddenly fail hydration are handled by the
+      // read-time self-heal, not counted as a merge drop).
+      if (camFromGuest) summary.droppedLines += 1;
+      continue;
     }
+    if (effective < wantedQty && camFromGuest) {
+      summary.cappedLines += 1;
+    }
+    if (previous === 0 && camFromGuest) {
+      summary.addedLines += 1;
+    } else if (previous > 0 && camFromGuest && effective > previous) {
+      summary.bumpedLines += 1;
+    }
+
+    finalFields.push(vid, String(effective));
   }
 
   pipeline.del(userKey);
@@ -274,13 +334,16 @@ export async function mergeGuestIntoUser(
     {
       userId,
       guestSessionId,
-      guestLines: variantIds.length,
-      merged: finalFields.length / 2,
+      guestLines: guestVariantIds.length,
+      ...summary,
     },
     "cart merged",
   );
 
-  return getCart({ type: "user", id: userId });
+  return {
+    cart: await getCart({ type: "user", id: userId }),
+    summary,
+  };
 }
 
 /**
