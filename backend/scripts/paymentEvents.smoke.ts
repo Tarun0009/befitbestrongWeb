@@ -112,23 +112,45 @@ try {
   assert.equal(capturedAudit.outcome, "PROCESSED");
   assert.equal(capturedAudit.processingCode, "payment_captured");
 
+  // payment.failed → PaymentAttempt records the failure but the order stays
+  // PENDING (still payable). Per razorpayEvent.policy.ts:336-352, a single
+  // card decline doesn't terminally fail the order — the customer can retry.
   const failedOrder = await createOrder("failed");
+  const failedProviderPaymentId = `pay_smoke_failed_${runId}`;
   const failedEvent = await createWebhook(
     "failed",
     "payment.failed",
     razorpayPayload({
       eventType: "payment.failed",
       providerOrderId: failedOrder.providerOrderId!,
-      providerPaymentId: `pay_smoke_failed_${runId}`,
+      providerPaymentId: failedProviderPaymentId,
     }),
   );
-  await processPaymentEvent(failedEvent.id);
+  const failedResult = await processPaymentEvent(failedEvent.id);
   const failed = await prisma.order.findUniqueOrThrow({
     where: { id: failedOrder.id },
-    include: { payment: true },
+    include: { payment: true, history: true },
   });
-  assert.equal(failed.status, "FAILED");
-  assert.equal(failed.payment?.status, "FAILED");
+  const failedAudit = await prisma.webhookEvent.findUniqueOrThrow({
+    where: { id: failedEvent.id },
+  });
+  const failedAttempt = await prisma.paymentAttempt.findUnique({
+    where: { providerPaymentId: failedProviderPaymentId },
+  });
+  assert.equal(failedResult.outcome, "PROCESSED");
+  assert.equal(failedResult.code, "payment_attempt_failed");
+  // Order stays payable — no state transition, no history entry.
+  assert.equal(failed.status, "PENDING");
+  assert.equal(failed.history.length, 0);
+  // Local Payment row untouched; only AUTHORIZED events promote it. FAILED
+  // attempts live on PaymentAttempt so the retry story stays clean.
+  assert.equal(failed.payment?.status, "CREATED");
+  // The failure IS recorded — just on PaymentAttempt, not Payment.
+  assert.ok(failedAttempt, "expected a PaymentAttempt row for the failed capture");
+  assert.equal(failedAttempt!.status, "FAILED");
+  assert.equal(failedAttempt!.providerPaymentId, failedProviderPaymentId);
+  assert.equal(failedAudit.outcome, "PROCESSED");
+  assert.equal(failedAudit.processingCode, "payment_attempt_failed");
 
   const mismatchOrder = await createOrder("amount");
   const mismatchEvent = await createWebhook(
