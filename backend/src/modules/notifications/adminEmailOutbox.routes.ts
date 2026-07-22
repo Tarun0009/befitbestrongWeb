@@ -29,6 +29,7 @@ router.get("/email-outbox", async (req, res, next) => {
         status: z.enum(statuses).optional(),
         template: z.enum(templates).optional(),
       })
+      .strict()
       .parse(req.query);
     const where = {
       ...(query.status ? { status: query.status } : {}),

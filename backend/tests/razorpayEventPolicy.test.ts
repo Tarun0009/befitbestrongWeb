@@ -78,8 +78,8 @@ describe("parseRazorpayPaymentEvent", () => {
   it("audits unsupported signed events as ignored", () => {
     const result = parseRazorpayPaymentEvent({
       provider: "razorpay",
-      recordedEventType: "payment.authorized",
-      payload: { event: "payment.authorized", payload: {} },
+      recordedEventType: "order.paid",
+      payload: { event: "order.paid", payload: {} },
     });
     expect(result).toMatchObject({
       kind: "FINAL",
@@ -154,15 +154,14 @@ describe("validateRazorpayPaymentEvent", () => {
     });
   });
 
-  it("allows a fully matched failure to transition PENDING to FAILED", () => {
+  it("records a failed attempt without failing the payable order", () => {
     const failed: ParsedRazorpayPaymentEvent = {
       ...capturedEvent,
       eventType: "payment.failed",
       providerStatus: "failed",
     };
     expect(validateRazorpayPaymentEvent(failed, local())).toMatchObject({
-      kind: "APPLY",
-      targetOrderStatus: "FAILED",
+      kind: "RECORD_ATTEMPT",
       targetPaymentStatus: "FAILED",
     });
   });
@@ -186,11 +185,33 @@ describe("validateRazorpayPaymentEvent", () => {
     expect(
       validateRazorpayPaymentEvent(capturedEvent, {
         ...base,
-        payment: { ...base.payment!, providerPaymentId: "pay_other" },
+        payment: {
+          ...base.payment!,
+          providerPaymentId: "pay_other",
+          status: "CAPTURED",
+        },
       }),
     ).toMatchObject({
       outcome: "RECONCILIATION_REQUIRED",
       code: "payment_id_mismatch",
+    });
+  });
+
+  it("allows a captured retry to supersede a different authorized attempt", () => {
+    const base = local();
+    expect(
+      validateRazorpayPaymentEvent(capturedEvent, {
+        ...base,
+        payment: {
+          ...base.payment!,
+          providerPaymentId: "pay_authorized_attempt",
+          status: "AUTHORIZED",
+        },
+      }),
+    ).toMatchObject({
+      kind: "APPLY",
+      targetOrderStatus: "PAID",
+      targetPaymentStatus: "CAPTURED",
     });
   });
 

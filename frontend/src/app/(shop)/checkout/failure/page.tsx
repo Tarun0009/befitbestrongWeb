@@ -21,6 +21,7 @@ function FailureContent() {
   const [guestAccessToken, setGuestAccessToken] = useState<string | undefined>();
   const [cancel, { isLoading, isSuccess }] = useCancelCheckoutMutation();
 
+  const [cancelError, setCancelError] = useState<string | null>(null);
   useEffect(() => {
     if (orderId) {
       setGuestAccessToken(
@@ -31,10 +32,17 @@ function FailureContent() {
 
   async function handleCancel() {
     if (!orderId) return;
+    setCancelError(null);
     try {
       await cancel({ orderId, guestAccessToken }).unwrap();
-    } catch {
-      // Best effort. A paid or already-cancelled order is safe to leave alone.
+    } catch (caught) {
+      const apiError = caught as {
+        data?: { error?: { message?: string } };
+      };
+      setCancelError(
+        apiError.data?.error?.message ??
+          "We could not confirm cancellation. Check your order status before trying again.",
+      );
     }
   }
 
@@ -61,6 +69,12 @@ function FailureContent() {
         {isSuccess && (
           <p className="mt-5 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">
             The pending order was cancelled and its stock was released.
+          </p>
+        )}
+
+        {cancelError && (
+          <p className="mt-5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {cancelError}
           </p>
         )}
 

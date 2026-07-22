@@ -15,13 +15,25 @@ export class HttpError extends Error {
   }
 }
 
-export function notFound(req: Request, res: Response) {
+export function notFound(_req: Request, res: Response) {
   res.status(404).json({
     error: {
       code: "not_found",
-      message: `Route ${req.method} ${req.originalUrl} not found`,
+      message: "The requested resource was not found",
     },
   });
+}
+
+function isServerError(status: number) {
+  return status >= 500;
+}
+
+function publicHttpErrorMessage(error: HttpError) {
+  // Provider, database, filesystem, and network messages can contain URLs,
+  // SQL fragments, hostnames, or local paths. Keep those details in logs only.
+  return isServerError(error.status)
+    ? "We couldn't complete that request right now. Please try again shortly."
+    : error.message;
 }
 
 export function errorHandler(
@@ -41,11 +53,13 @@ export function errorHandler(
   }
 
   if (err instanceof HttpError) {
+    if (isServerError(err.status)) {
+      logger.error({ err, requestId: req.id }, "handled server error");
+    }
     return res.status(err.status).json({
       error: {
         code: err.code,
-        message: err.message,
-        ...(err.details ? { details: err.details } : {}),
+        message: publicHttpErrorMessage(err),
       },
     });
   }

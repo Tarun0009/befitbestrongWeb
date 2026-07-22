@@ -1,4 +1,5 @@
 export const SUPPORTED_RAZORPAY_PAYMENT_EVENTS = [
+  "payment.authorized",
   "payment.captured",
   "payment.failed",
 ] as const;
@@ -26,7 +27,7 @@ export interface ParsedRazorpayPaymentEvent {
   providerPaymentId: string;
   amount: number;
   currency: string;
-  providerStatus: "captured" | "failed";
+  providerStatus: "authorized" | "captured" | "failed";
   rawPaymentEntity: Record<string, unknown>;
 }
 
@@ -53,8 +54,11 @@ export interface LocalPaymentSnapshot {
 
 export type ValidateRazorpayPaymentEventResult =
   | ({ kind: "APPLY" } & DecisionBase & {
-      targetOrderStatus: "PAID" | "FAILED";
-      targetPaymentStatus: "CAPTURED" | "FAILED";
+      targetOrderStatus: "PAID";
+      targetPaymentStatus: "CAPTURED";
+    })
+  | ({ kind: "RECORD_ATTEMPT" } & DecisionBase & {
+      targetPaymentStatus: "AUTHORIZED" | "FAILED";
     })
   | ({ kind: "FINAL" } & DecisionBase);
 
@@ -173,7 +177,11 @@ export function parseRazorpayPaymentEvent(input: {
   const normalizedCurrency = currency.ok ? currency.value.toUpperCase() : "";
   const providerStatus = status.ok ? status.value.toLowerCase() : "";
   const expectedStatus =
-    payloadEvent.value === "payment.captured" ? "captured" : "failed";
+    payloadEvent.value === "payment.captured"
+      ? "captured"
+      : payloadEvent.value === "payment.authorized"
+        ? "authorized"
+        : "failed";
   if (providerStatus !== expectedStatus) {
     return final(
       "REJECTED",
@@ -324,26 +332,43 @@ export function validateRazorpayPaymentEvent(
       local.orderId,
     );
   }
+  const isCapture = event.eventType === "payment.captured";
+  if (!isCapture) {
+    return {
+      kind: "RECORD_ATTEMPT",
+      outcome: "PROCESSED",
+      code:
+        event.eventType === "payment.authorized"
+          ? "payment_authorized"
+          : "payment_attempt_failed",
+      message:
+        event.eventType === "payment.authorized"
+          ? "Recorded an authorized payment attempt; awaiting capture"
+          : "Recorded a failed payment attempt; order remains payable",
+      targetPaymentStatus:
+        event.eventType === "payment.authorized" ? "AUTHORIZED" : "FAILED",
+      ...identifiers,
+    };
+  }
+
   if (
+    local.payment.status === "CAPTURED" &&
     local.payment.providerPaymentId !== null &&
     local.payment.providerPaymentId !== event.providerPaymentId
   ) {
     return reconcile(
       "payment_id_mismatch",
-      "Provider payment id would overwrite a different local payment id",
+      "Captured provider payment id differs from the local captured payment",
       event,
       local.orderId,
     );
   }
 
-  const isCapture = event.eventType === "payment.captured";
-  const targetOrderStatus = isCapture ? "PAID" : "FAILED";
-  const targetPaymentStatus = isCapture ? "CAPTURED" : "FAILED";
-  if (local.orderStatus === targetOrderStatus) {
-    if (local.payment.status !== targetPaymentStatus) {
+  if (local.orderStatus === "PAID") {
+    if (local.payment.status !== "CAPTURED") {
       return reconcile(
         "local_state_mismatch",
-        `Order is ${targetOrderStatus} but payment is ${local.payment.status}`,
+        `Order is PAID but payment is ${local.payment.status}`,
         event,
         local.orderId,
       );
@@ -365,9 +390,7 @@ export function validateRazorpayPaymentEvent(
     );
   }
 
-  const allowedPaymentStatuses = isCapture
-    ? ["CREATED", "AUTHORIZED", "CAPTURED"]
-    : ["CREATED", "AUTHORIZED", "FAILED"];
+  const allowedPaymentStatuses = ["CREATED", "AUTHORIZED", "CAPTURED"];
   if (!allowedPaymentStatuses.includes(local.payment.status)) {
     return reconcile(
       "illegal_payment_state",
@@ -379,10 +402,10 @@ export function validateRazorpayPaymentEvent(
   return {
     kind: "APPLY",
     outcome: "PROCESSED",
-    code: isCapture ? "payment_captured" : "payment_failed",
+    code: "payment_captured",
     message: `Validated and applied ${event.eventType}`,
-    targetOrderStatus,
-    targetPaymentStatus,
+    targetOrderStatus: "PAID",
+    targetPaymentStatus: "CAPTURED",
     ...identifiers,
   };
 }

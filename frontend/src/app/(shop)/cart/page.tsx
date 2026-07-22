@@ -17,11 +17,13 @@ import { formatINR } from "@/lib/format";
 
 export default function CartPage() {
   const { data: cart, isFetching, error } = useGetCartQuery();
-  const [setQty] = useSetItemQtyMutation();
-  const [removeItem] = useRemoveItemMutation();
-  const [clearCart] = useClearCartMutation();
-  const [setBundleQty] = useSetBundleQtyMutation();
-  const [removeBundle] = useRemoveBundleMutation();
+  const [setQty, { isLoading: settingQty }] = useSetItemQtyMutation();
+  const [removeItem, { isLoading: removingItem }] = useRemoveItemMutation();
+  const [clearCart, { isLoading: clearing }] = useClearCartMutation();
+  const [setBundleQty, { isLoading: settingBundleQty }] = useSetBundleQtyMutation();
+  const [removeBundle, { isLoading: removingBundle }] = useRemoveBundleMutation();
+  const mutating =
+    settingQty || removingItem || clearing || settingBundleQty || removingBundle;
   const authed = useAppSelector((s) => s.auth.status === "authenticated");
 
   if (error) {
@@ -54,10 +56,11 @@ export default function CartPage() {
         </div>
         {cart && cart.count > 0 && (
           <button
-            onClick={() => clearCart()}
+            onClick={() => void clearCart()}
+            disabled={mutating}
             className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
           >
-            Clear cart
+            {clearing ? "Clearing…" : "Clear cart"}
           </button>
         )}
       </header>
@@ -87,6 +90,7 @@ export default function CartPage() {
                   setBundleQty({ bundleId: bundle.bundleId, quantity })
                 }
                 onRemove={() => removeBundle(bundle.bundleId)}
+                busy={mutating}
               />
             ))}
             {cart?.items.map((line) => (
@@ -135,6 +139,7 @@ export default function CartPage() {
                             quantity: line.quantity - 1,
                           })
                         }
+                        disabled={mutating || line.quantity <= 1}
                         className="px-2 py-1 text-sm hover:bg-muted"
                         aria-label="Decrease quantity"
                       >
@@ -150,7 +155,7 @@ export default function CartPage() {
                             quantity: line.quantity + 1,
                           })
                         }
-                        disabled={line.quantity >= line.stock}
+                        disabled={mutating || line.quantity >= line.stock}
                         className="px-2 py-1 text-sm hover:bg-muted disabled:opacity-40"
                         aria-label="Increase quantity"
                       >
@@ -159,6 +164,7 @@ export default function CartPage() {
                     </div>
                     <button
                       onClick={() => removeItem(line.variantId)}
+                      disabled={mutating}
                       className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
                     >
                       Remove
@@ -224,10 +230,12 @@ function BundleCartCard({
   bundle,
   onSetQuantity,
   onRemove,
+  busy,
 }: {
   bundle: BundleCartLine;
   onSetQuantity: (quantity: number) => void;
   onRemove: () => void;
+  busy: boolean;
 }) {
   return (
     <li className="rounded-lg border border-primary/30 bg-primary/5 p-5">
@@ -252,11 +260,11 @@ function BundleCartCard({
           </div>
           <div className="mt-4 flex items-center gap-3">
             <div className="flex items-center rounded-md border border-border bg-background">
-              <button type="button" onClick={() => onSetQuantity(bundle.quantity - 1)} className="px-2 py-1 text-sm hover:bg-muted" aria-label="Decrease bundle quantity">–</button>
+              <button type="button" onClick={() => onSetQuantity(bundle.quantity - 1)} disabled={busy || bundle.quantity <= 1} className="px-2 py-1 text-sm hover:bg-muted disabled:opacity-40" aria-label="Decrease bundle quantity">–</button>
               <span className="min-w-[2rem] text-center text-sm tabular-nums">{bundle.quantity}</span>
-              <button type="button" onClick={() => onSetQuantity(bundle.quantity + 1)} disabled={bundle.quantity >= bundle.availableUnits} className="px-2 py-1 text-sm hover:bg-muted disabled:opacity-40" aria-label="Increase bundle quantity">+</button>
+              <button type="button" onClick={() => onSetQuantity(bundle.quantity + 1)} disabled={busy || bundle.quantity >= bundle.availableUnits} className="px-2 py-1 text-sm hover:bg-muted disabled:opacity-40" aria-label="Increase bundle quantity">+</button>
             </div>
-            <button type="button" onClick={onRemove} className="text-xs text-muted-foreground underline underline-offset-4">Remove</button>
+            <button type="button" onClick={onRemove} disabled={busy} className="text-xs text-muted-foreground underline underline-offset-4 disabled:opacity-40">Remove</button>
             <span className="ml-auto text-xs text-muted-foreground">{formatINR(bundle.unitPrice)} per bundle</span>
           </div>
         </div>

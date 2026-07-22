@@ -37,6 +37,7 @@ router.get("/orders", async (req, res, next) => {
         limit: z.coerce.number().int().positive().max(100).default(20),
         status: z.enum(ORDER_STATUSES as [OrderStatus, ...OrderStatus[]]).optional(),
       })
+      .strict()
       .parse(req.query);
 
     const where = q.status ? { status: q.status } : {};
@@ -112,8 +113,8 @@ router.get("/orders/:id", async (req, res, next) => {
 });
 
 const noteBody = z.object({
-  note: z.string().max(500).optional(),
-});
+  note: z.string().trim().max(500).optional(),
+}).strict();
 
 router.post("/orders/:id/shipments", async (req, res, next) => {
   try {
@@ -219,7 +220,7 @@ router.post("/orders/:id/cancel", (req, res, next) =>
 const refundBody = z.object({
   amount: z.number().int().positive(),
   reason: z.string().trim().min(3).max(500),
-});
+}).strict();
 
 router.post("/orders/:id/refunds", async (req, res, next) => {
   try {

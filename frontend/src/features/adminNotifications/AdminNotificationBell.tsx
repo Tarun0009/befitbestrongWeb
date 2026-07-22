@@ -20,7 +20,7 @@ export function AdminNotificationBell() {
       refetchOnReconnect: true,
     },
   );
-  const [markRead] = useMarkAdminNotificationReadMutation();
+  const [markRead, { isLoading: markingRead }] = useMarkAdminNotificationReadMutation();
   const [markAll, { isLoading: markingAll }] =
     useMarkAllAdminNotificationsReadMutation();
 
@@ -126,7 +126,7 @@ export function AdminNotificationBell() {
                       <Link
                         href={"/admin/orders/" + notification.orderId}
                         onClick={() => {
-                          if (!notification.readAt) {
+                          if (!notification.readAt && !markingRead) {
                             void markRead(notification.id);
                           }
                           setOpen(false);

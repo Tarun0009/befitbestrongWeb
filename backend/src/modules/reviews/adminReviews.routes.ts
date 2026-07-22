@@ -18,6 +18,7 @@ router.get("/reviews", async (req, res, next) => {
         page: z.coerce.number().int().positive().default(1),
         limit: z.coerce.number().int().positive().max(100).default(20),
       })
+      .strict()
       .parse(req.query);
 
     const result = await listAdminReviews(query);
@@ -32,6 +33,7 @@ router.patch("/reviews/:id/moderate", async (req, res, next) => {
     const id = z.string().cuid().parse(req.params.id);
     const body = z
       .object({ status: z.enum(["APPROVED", "REJECTED"]) })
+      .strict()
       .parse(req.body);
     const result = await moderateReview(
       id,

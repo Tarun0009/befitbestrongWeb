@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronRight,
+  ChevronDown,
   Heart,
   LogOut,
   Menu,
@@ -32,7 +33,7 @@ const FALLBACK_CATEGORIES = [
 
 export function Header() {
   const { user, status } = useAppSelector((state) => state.auth);
-  const [logout] = useLogoutMutation();
+  const [logout, { isLoading: loggingOut }] = useLogoutMutation();
   const dispatch = useAppDispatch();
   const { data: cart } = useGetCartQuery();
   const { data: categoryData } = useGetCategoriesQuery();
@@ -46,6 +47,8 @@ export function Header() {
   const searchParams = useSearchParams();
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const isShopListing = pathname === "/shop";
 
   const categories = useMemo(() => {
     const available = categoryData?.items
@@ -63,16 +66,20 @@ export function Header() {
 
   useEffect(() => {
     setMobileOpen(false);
+    setCategoriesOpen(false);
   }, [pathname]);
 
   useEffect(() => {
-    if (!mobileOpen) return;
+    if (!mobileOpen && !categoriesOpen) return;
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setMobileOpen(false);
+      if (event.key === "Escape") {
+        setMobileOpen(false);
+        setCategoriesOpen(false);
+      }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [mobileOpen]);
+  }, [categoriesOpen, mobileOpen]);
 
   function handleSearch(event: FormEvent) {
     event.preventDefault();
@@ -83,6 +90,7 @@ export function Header() {
   }
 
   async function handleLogout() {
+    if (loggingOut) return;
     try {
       await logout().unwrap();
     } catch {
@@ -154,10 +162,42 @@ export function Header() {
         </div>
 
         <nav className="hidden h-11 items-center gap-1 border-t border-border/70 lg:flex" aria-label="Product categories">
-          <NavLink href="/shop" active={pathname === "/shop"}>Shop all</NavLink>
+          <NavLink href="/shop" active={isShopListing}>Shop</NavLink>
           <NavLink href="/bundles" active={pathname.startsWith("/bundles")} emphasis>Bundles</NavLink>
-          {categories.map((category) => <NavLink key={category.slug} href={`/shop?category=${category.slug}`} active={pathname === "/shop" && searchParams.get("category") === category.slug}>{category.name}</NavLink>)}
-          <span className="ml-auto text-[11px] font-medium text-muted-foreground">Delivery availability checked by PIN</span>
+          {!isShopListing && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setCategoriesOpen((open) => !open)}
+                aria-expanded={categoriesOpen}
+                aria-haspopup="menu"
+                className="inline-flex h-8 items-center gap-1 rounded-lg px-3 text-xs font-semibold text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              >
+                Categories
+                <ChevronDown className={"h-3.5 w-3.5 transition-transform " + (categoriesOpen ? "rotate-180" : "")} />
+              </button>
+              {categoriesOpen && (
+                <div className="absolute left-0 top-10 z-50 min-w-52 rounded-2xl border border-border bg-background p-2 shadow-xl" role="menu">
+                  <Link href="/shop" onClick={() => setCategoriesOpen(false)} className="flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-semibold transition hover:bg-muted" role="menuitem">
+                    All products
+                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Link>
+                  {categories.map((category) => (
+                    <Link
+                      key={category.slug}
+                      href={"/shop?category=" + category.slug}
+                      onClick={() => setCategoriesOpen(false)}
+                      className="flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-semibold transition hover:bg-muted"
+                      role="menuitem"
+                    >
+                      {category.name}
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </nav>
       </div>
 
@@ -170,7 +210,7 @@ export function Header() {
               <div className="grid gap-1 sm:grid-cols-2">
                 <MobileLink href="/shop" label="Shop all products" />
                 <MobileLink href="/bundles" label="Bundles & savings" />
-                {categories.map((category) => <MobileLink key={category.slug} href={`/shop?category=${category.slug}`} label={category.name} />)}
+                {!isShopListing && categories.map((category) => <MobileLink key={category.slug} href={"/shop?category=" + category.slug} label={category.name} />)}
               </div>
             </nav>
             <div className="border-t border-border pt-4">
@@ -180,7 +220,7 @@ export function Header() {
                   <MobileAction href="/account/orders" icon={ShoppingBag} label="Your orders" />
                   <MobileAction href="/account/wishlist" icon={Heart} label={`Wishlist${wishlistCount ? ` (${wishlistCount})` : ""}`} />
                   {user.role === "ADMIN" && <MobileAction href="/admin" icon={ShieldCheck} label="Admin panel" />}
-                  <button type="button" onClick={handleLogout} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-foreground text-sm font-semibold text-background transition hover:opacity-90 sm:col-span-2"><LogOut className="h-4 w-4" /> Log out</button>
+                  <button type="button" onClick={handleLogout} disabled={loggingOut} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-foreground text-sm font-semibold text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:col-span-2"><LogOut className="h-4 w-4" /> {loggingOut ? "Logging out…" : "Log out"}</button>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-2"><Link href="/login" className="inline-flex h-11 items-center justify-center rounded-xl border border-border text-sm font-semibold transition hover:bg-muted">Log in</Link><Link href="/signup" className="inline-flex h-11 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition hover:brightness-95">Create account</Link></div>

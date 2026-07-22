@@ -1,18 +1,30 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../../middleware/auth.js";
-import { rateLimit } from "../../middleware/rateLimit.js";
+import {
+  firebaseAccountHint,
+  rateLimit,
+} from "../../middleware/rateLimit.js";
+import { rateLimitPolicies } from "../../config/rateLimitConfig.js";
 import { syncSession, revokeSession } from "./auth.service.js";
 
 const router = Router();
-
-router.use(rateLimit({ keyPrefix: "auth", max: 20, windowSec: 60 }));
-
-const sessionBody = z.object({
-  idToken: z.string().min(20, "idToken looks too short"),
+const sessionRateLimit = rateLimit({
+  keyPrefix: "auth-session",
+  ...rateLimitPolicies.auth,
+  accountKeyBy: firebaseAccountHint,
+});
+const authenticatedRateLimit = rateLimit({
+  keyPrefix: "auth-user",
+  ...rateLimitPolicies.authenticated,
+  accountKeyBy: (req) => req.auth?.userId,
 });
 
-router.post("/session", async (req, res, next) => {
+const sessionBody = z.object({
+  idToken: z.string().trim().min(20, "idToken looks too short").max(8192),
+}).strict();
+
+router.post("/session", sessionRateLimit, async (req, res, next) => {
   try {
     const { idToken } = sessionBody.parse(req.body);
     const user = await syncSession(idToken);
@@ -29,7 +41,7 @@ router.post("/session", async (req, res, next) => {
   }
 });
 
-router.get("/me", requireAuth, (req, res) => {
+router.get("/me", requireAuth, authenticatedRateLimit, (req, res) => {
   const auth = req.auth!;
   res.json({
     user: {
@@ -40,7 +52,7 @@ router.get("/me", requireAuth, (req, res) => {
   });
 });
 
-router.post("/logout", requireAuth, async (req, res, next) => {
+router.post("/logout", requireAuth, authenticatedRateLimit, async (req, res, next) => {
   try {
     await revokeSession(req.auth!.uid);
     res.status(204).end();

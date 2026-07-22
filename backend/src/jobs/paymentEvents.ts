@@ -1,4 +1,9 @@
-import type { PrismaClient, WebhookProcessingOutcome } from "@prisma/client";
+import {
+  Prisma,
+  type PaymentAttemptStatus,
+  type PrismaClient,
+  type WebhookProcessingOutcome,
+} from "@prisma/client";
 import { Worker, type ConnectionOptions } from "bullmq";
 import { prisma } from "../config/db.js";
 import { env } from "../config/env.js";
@@ -46,6 +51,52 @@ function auditData(result: PaymentEventProcessResult) {
   };
 }
 
+const ATTEMPT_STATUS_RANK: Record<PaymentAttemptStatus, number> = {
+  FAILED: 0,
+  AUTHORIZED: 1,
+  CAPTURED: 2,
+};
+
+async function recordPaymentAttempt(
+  tx: Prisma.TransactionClient,
+  input: {
+    paymentId: string;
+    providerPaymentId: string;
+    providerOrderId: string;
+    status: PaymentAttemptStatus;
+    amount: number;
+    currency: string;
+    rawPayload: Record<string, unknown>;
+  },
+): Promise<void> {
+  const existing = await tx.paymentAttempt.findUnique({
+    where: { providerPaymentId: input.providerPaymentId },
+  });
+  if (existing && existing.paymentId !== input.paymentId) {
+    throw new HttpError(
+      409,
+      "payment_attempt_owner_mismatch",
+      "Provider payment is already attached to another local payment",
+    );
+  }
+  const status =
+    existing && ATTEMPT_STATUS_RANK[existing.status] > ATTEMPT_STATUS_RANK[input.status]
+      ? existing.status
+      : input.status;
+  await tx.paymentAttempt.upsert({
+    where: { providerPaymentId: input.providerPaymentId },
+    update: {
+      status,
+      rawPayload: input.rawPayload as Prisma.InputJsonValue,
+    },
+    create: {
+      ...input,
+      status,
+      rawPayload: input.rawPayload as Prisma.InputJsonValue,
+    },
+  });
+}
+
 async function finalizeEvent(
   db: PrismaClient,
   input: FinalizeEventInput,
@@ -88,6 +139,13 @@ export async function processPaymentEvent(
     };
   }
 
+  await db.webhookEvent.updateMany({
+    where: { id: stored.id, processedAt: null },
+    data: {
+      deliveryAttempts: { increment: 1 },
+      lastAttemptAt: new Date(),
+    },
+  });
   if (stored.eventType.startsWith("refund.")) {
     const parsedRefund = parseRazorpayRefundWebhook({
       provider: stored.provider,
@@ -183,6 +241,53 @@ export async function processPaymentEvent(
     localOrderId: decision.localOrderId,
     providerPaymentId: decision.providerPaymentId,
   };
+  if (decision.kind === "RECORD_ATTEMPT") {
+    if (!order.payment) {
+      throw new Error("Validated payment event has no local payment record");
+    }
+    await db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${order.id} FOR UPDATE`;
+      await recordPaymentAttempt(tx, {
+        paymentId: order.payment!.id,
+        providerPaymentId: providerEvent.providerPaymentId,
+        providerOrderId: providerEvent.providerOrderId,
+        status: decision.targetPaymentStatus,
+        amount: providerEvent.amount,
+        currency: providerEvent.currency,
+        rawPayload: providerEvent.rawPaymentEntity,
+      });
+      if (decision.targetPaymentStatus === "AUTHORIZED") {
+        await tx.payment.updateMany({
+          where: {
+            id: order.payment!.id,
+            status: { in: ["CREATED", "AUTHORIZED"] },
+          },
+          data: {
+            status: "AUTHORIZED",
+            rawPayload: providerEvent.rawPaymentEntity as Prisma.InputJsonValue,
+          },
+        });
+        await tx.order.updateMany({
+          where: { id: order.id, status: "PENDING" },
+          data: {
+            paymentNextReconcileAt: new Date(
+              Date.now() +
+                env.PAYMENT_RECONCILIATION_INITIAL_DELAY_SECONDS * 1000,
+            ),
+          },
+        });
+      }
+      const marked = await tx.webhookEvent.updateMany({
+        where: { id: stored.id, processedAt: null },
+        data: auditData(result),
+      });
+      if (marked.count !== 1) {
+        throw new Error("Webhook event was processed concurrently");
+      }
+    });
+    return result;
+  }
+
   await transition(db, order.id, decision.targetOrderStatus, {
     actor: {
       kind: "system",
@@ -196,6 +301,22 @@ export async function processPaymentEvent(
     // Commit the audit outcome with the commercial transition. If either
     // write loses a race or fails, both roll back and BullMQ can safely retry.
     transactionWork: async (tx) => {
+      await recordPaymentAttempt(tx, {
+        paymentId: order.payment!.id,
+        providerPaymentId: providerEvent.providerPaymentId,
+        providerOrderId: providerEvent.providerOrderId,
+        status: "CAPTURED",
+        amount: providerEvent.amount,
+        currency: providerEvent.currency,
+        rawPayload: providerEvent.rawPaymentEntity,
+      });
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          paymentNextReconcileAt: null,
+          paymentLastReconciledAt: new Date(),
+        },
+      });
       const marked = await tx.webhookEvent.updateMany({
         where: { id: stored.id, processedAt: null },
         data: auditData(result),
@@ -243,9 +364,44 @@ export function startPaymentEventsWorker(): Worker | null {
   );
 
   worker.on("error", (err) => logger.error({ err }, "payment-events worker error"));
-  worker.on("failed", (job, err) =>
-    logger.warn({ err, jobId: job?.id }, "payment-events job failed"),
-  );
+  worker.on("failed", (job, err) => {
+    if (!job) {
+      logger.error({ err }, "payment-events unknown job failed");
+      return;
+    }
+    const maxAttempts = job.opts.attempts ?? 1;
+    if (job.attemptsMade < maxAttempts) {
+      logger.warn(
+        { err, jobId: job.id, attempt: job.attemptsMade, maxAttempts },
+        "payment-events job failed and will retry",
+      );
+      return;
+    }
+    void prisma.webhookEvent
+      .updateMany({
+        where: {
+          id: job.data.webhookEventId,
+          processedAt: null,
+          deadLetteredAt: null,
+        },
+        data: {
+          deadLetteredAt: new Date(),
+          deadLetterReason: err.message.slice(0, 1000),
+        },
+      })
+      .then(() => {
+        logger.error(
+          { err, jobId: job.id, webhookEventId: job.data.webhookEventId },
+          "payment-events job moved to dead-letter state",
+        );
+      })
+      .catch((deadLetterError) => {
+        logger.error(
+          { err: deadLetterError, jobId: job.id },
+          "payment-events dead-letter write failed",
+        );
+      });
+  });
 
   logger.info("payment-events worker started");
   return worker;

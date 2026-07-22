@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { optionalAuth } from "../../middleware/optionalAuth.js";
+import { rateLimit } from "../../middleware/rateLimit.js";
+import { rateLimitPolicies } from "../../config/rateLimitConfig.js";
 import { env } from "../../config/env.js";
 import {
   addItem,
@@ -54,6 +56,13 @@ function resolveOwner(req: Request, res: Response): CartOwner {
 }
 
 router.use(optionalAuth);
+router.use(
+  rateLimit({
+    keyPrefix: "cart",
+    ...rateLimitPolicies.authenticated,
+    accountKeyBy: (req) => req.auth?.userId,
+  }),
+);
 
 router.get("/", async (req, res, next) => {
   try {
@@ -69,7 +78,7 @@ router.get("/", async (req, res, next) => {
 const addBody = z.object({
   variantId: z.string().cuid(),
   quantity: z.number().int().positive().max(99).default(1),
-});
+}).strict();
 
 router.post("/items", async (req, res, next) => {
   try {
@@ -88,7 +97,7 @@ router.post("/items", async (req, res, next) => {
 
 const patchBody = z.object({
   quantity: z.number().int().nonnegative().max(99),
-});
+}).strict();
 
 router.patch("/items/:variantId", async (req, res, next) => {
   try {
@@ -120,6 +129,7 @@ router.post("/bundles", async (req, res, next) => {
         bundleId: z.string().cuid(),
         quantity: z.number().int().positive().max(20).default(1),
       })
+      .strict()
       .parse(req.body);
     const owner = resolveOwner(req, res);
     const effective = await addBundle(owner, body.bundleId, body.quantity);
@@ -134,6 +144,7 @@ router.patch("/bundles/:bundleId", async (req, res, next) => {
     const bundleId = z.string().cuid().parse(req.params.bundleId);
     const { quantity } = z
       .object({ quantity: z.number().int().nonnegative().max(20) })
+      .strict()
       .parse(req.body);
     const owner = resolveOwner(req, res);
     await setBundleQuantity(owner, bundleId, quantity);
@@ -180,15 +191,14 @@ router.post("/merge", async (req, res, next) => {
     const sid = req.cookies?.[CART_COOKIE] as string | undefined;
     if (!sid) {
       const cart = await getCart({ type: "user", id: req.auth.userId });
-      return res.json({ cart, merged: 0 });
+      return res.json({
+        cart,
+        summary: { addedLines: 0, bumpedLines: 0, cappedLines: 0, droppedLines: 0 },
+      });
     }
-    const before = await getCart({ type: "user", id: req.auth.userId });
-    const cart = await mergeGuestIntoUser(sid, req.auth.userId);
+    const { cart, summary } = await mergeGuestIntoUser(sid, req.auth.userId);
     res.clearCookie(CART_COOKIE, { path: "/" });
-    res.json({
-      cart,
-      merged: Math.max(0, cart.count - before.count),
-    });
+    res.json({ cart, summary });
   } catch (err) {
     next(err);
   }

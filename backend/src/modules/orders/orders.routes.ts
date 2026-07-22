@@ -4,21 +4,31 @@ import { prisma } from "../../config/db.js";
 import { requireAuth } from "../../middleware/auth.js";
 import { optionalAuth } from "../../middleware/optionalAuth.js";
 import { rateLimit } from "../../middleware/rateLimit.js";
+import { rateLimitPolicies } from "../../config/rateLimitConfig.js";
 import { HttpError } from "../../middleware/errorHandler.js";
 import { hashGuestToken } from "../checkout/checkout.service.js";
 import { transition } from "./stateMachine.js";
 
 const router = Router();
 
-router.use(rateLimit({ keyPrefix: "orders", max: 60, windowSec: 60 }));
+const authenticatedRateLimit = rateLimit({
+  keyPrefix: "orders-authenticated",
+  ...rateLimitPolicies.authenticated,
+  accountKeyBy: (req) => req.auth?.userId,
+});
+const guestLookupRateLimit = rateLimit({
+  keyPrefix: "orders-lookup",
+  ...rateLimitPolicies.public,
+});
 
-router.get("/", requireAuth, async (req, res, next) => {
+router.get("/", requireAuth, authenticatedRateLimit, async (req, res, next) => {
   try {
     const query = z
       .object({
         page: z.coerce.number().int().positive().default(1),
         limit: z.coerce.number().int().positive().max(50).default(10),
       })
+      .strict()
       .parse(req.query);
 
     const where = { userId: req.auth!.userId };
@@ -65,7 +75,11 @@ const cancellationBody = z
   })
   .strict();
 
-router.post("/:id/cancel", requireAuth, async (req, res, next) => {
+router.post(
+  "/:id/cancel",
+  requireAuth,
+  authenticatedRateLimit,
+  async (req, res, next) => {
   try {
     const id = z.string().cuid().parse(req.params.id);
     const { reason } = cancellationBody.parse(req.body ?? {});
@@ -95,9 +109,10 @@ router.post("/:id/cancel", requireAuth, async (req, res, next) => {
   } catch (err) {
     next(err);
   }
-});
+  },
+);
 
-router.get("/:id", optionalAuth, async (req, res, next) => {
+router.get("/:id", optionalAuth, guestLookupRateLimit, async (req, res, next) => {
   try {
     const id = z.string().cuid().parse(req.params.id);
     const guestAccessToken = req.header("X-Guest-Order-Token");

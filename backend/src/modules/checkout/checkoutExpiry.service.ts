@@ -4,6 +4,7 @@ import { logger } from "../../config/logger.js";
 import { HttpError } from "../../middleware/errorHandler.js";
 import { transition } from "../orders/stateMachine.js";
 import { isReservationExpired } from "./checkoutExpiry.policy.js";
+import { reconcilePendingPayment } from "../payments/paymentReconciliation.service.js";
 
 const RACE_CODES = new Set(["invalid_transition", "order_status_changed"]);
 
@@ -16,6 +17,25 @@ export async function expireCheckoutReservation(
     select: { status: true, reservationExpiresAt: true },
   });
   if (!candidate || !isReservationExpired({ ...candidate, now })) return false;
+
+  // Never release reserved stock until Razorpay confirms there is no captured
+  // or in-flight payment. Provider errors leave the order pending for retry.
+  try {
+    const paymentOutcome = await reconcilePendingPayment(orderId);
+    if (
+      paymentOutcome === "CAPTURED" ||
+      paymentOutcome === "ACTIVE" ||
+      paymentOutcome === "TERMINAL"
+    ) {
+      return false;
+    }
+  } catch (error) {
+    logger.error(
+      { err: error, orderId },
+      "expired checkout payment status could not be confirmed",
+    );
+    return false;
+  }
 
   try {
     await transition(prisma, orderId, "CANCELLED", {

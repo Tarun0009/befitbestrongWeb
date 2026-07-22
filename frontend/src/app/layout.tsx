@@ -6,6 +6,7 @@ import { CartDrawer } from "@/components/CartDrawer";
 import { AnnouncementBar } from "@/components/AnnouncementBar";
 import { RewardsTicker } from "@/components/RewardsTicker";
 import { Footer } from "@/components/Footer";
+import { MergeNoticeToast } from "@/components/MergeNoticeToast";
 import { jsonLd } from "@/lib/seo";
 import { StorefrontOnly } from "@/components/StorefrontOnly";
 import {
@@ -141,6 +142,7 @@ export default function RootLayout({
           <StorefrontOnly>
             <Footer />
             <CartDrawer />
+            <MergeNoticeToast />
           </StorefrontOnly>
         </Providers>
       </body>

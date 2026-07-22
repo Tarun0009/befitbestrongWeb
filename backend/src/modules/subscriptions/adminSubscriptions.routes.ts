@@ -17,7 +17,7 @@ const createBody = z.object({
   discountPercent: z.number().int().min(1).max(50),
   allowedFrequencies: frequencies,
   active: z.boolean().default(true),
-});
+}).strict();
 const updateBody = createBody.omit({ variantId: true });
 const updatePatchBody = requireAtLeastOneField(updateBody.partial().strict());
 

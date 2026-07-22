@@ -26,11 +26,12 @@ export function CartDrawer() {
   const panelRef = useRef<HTMLElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
 
-  const { data: cart } = useGetCartQuery();
-  const [setQty] = useSetItemQtyMutation();
-  const [removeItem] = useRemoveItemMutation();
-  const [setBundleQty] = useSetBundleQtyMutation();
-  const [removeBundle] = useRemoveBundleMutation();
+  const { data: cart, isLoading: cartLoading, isFetching: cartFetching } = useGetCartQuery();
+  const [setQty, { isLoading: settingQty }] = useSetItemQtyMutation();
+  const [removeItem, { isLoading: removingItem }] = useRemoveItemMutation();
+  const [setBundleQty, { isLoading: settingBundleQty }] = useSetBundleQtyMutation();
+  const [removeBundle, { isLoading: removingBundle }] = useRemoveBundleMutation();
+  const mutating = settingQty || removingItem || settingBundleQty || removingBundle;
 
   // Close on navigation. Drawer state lives in Redux so it survives route
   // changes; without this effect, clicking a product link inside the drawer
@@ -148,8 +149,14 @@ export function CartDrawer() {
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4">
-          {!cart || (cart.items.length === 0 && cart.bundles.length === 0) ? (
+        <div className={`flex-1 overflow-y-auto px-6 py-4 ${cartFetching && cart ? "opacity-60" : ""}`}>
+          {cartLoading ? (
+            <div className="space-y-3 pt-4" aria-label="Loading cart">
+              <div className="h-16 animate-pulse rounded-lg bg-muted" />
+              <div className="h-16 animate-pulse rounded-lg bg-muted" />
+              <div className="h-16 animate-pulse rounded-lg bg-muted" />
+            </div>
+          ) : !cart || (cart.items.length === 0 && cart.bundles.length === 0) ? (
             <div className="mt-16 text-center">
               <p className="text-sm text-muted-foreground">
                 Your cart is empty.
@@ -178,11 +185,11 @@ export function CartDrawer() {
                   </div>
                   <div className="mt-3 flex items-center gap-3">
                     <div className="flex items-center rounded-md border border-border bg-background">
-                      <button type="button" onClick={() => setBundleQty({ bundleId: bundle.bundleId, quantity: bundle.quantity - 1 })} aria-label={`Decrease ${bundle.name} quantity`} className="px-2 py-0.5 text-sm">–</button>
+                      <button type="button" onClick={() => setBundleQty({ bundleId: bundle.bundleId, quantity: bundle.quantity - 1 })} disabled={mutating || bundle.quantity <= 1} aria-label={`Decrease ${bundle.name} quantity`} className="px-2 py-0.5 text-sm disabled:opacity-40">–</button>
                       <span className="min-w-7 text-center text-sm">{bundle.quantity}</span>
-                      <button type="button" onClick={() => setBundleQty({ bundleId: bundle.bundleId, quantity: bundle.quantity + 1 })} disabled={bundle.quantity >= bundle.availableUnits} aria-label={`Increase ${bundle.name} quantity`} className="px-2 py-0.5 text-sm disabled:opacity-40">+</button>
+                      <button type="button" onClick={() => setBundleQty({ bundleId: bundle.bundleId, quantity: bundle.quantity + 1 })} disabled={mutating || bundle.quantity >= bundle.availableUnits} aria-label={`Increase ${bundle.name} quantity`} className="px-2 py-0.5 text-sm disabled:opacity-40">+</button>
                     </div>
-                    <button type="button" onClick={() => removeBundle(bundle.bundleId)} aria-label={`Remove ${bundle.name} bundle`} className="text-xs text-muted-foreground underline underline-offset-4">Remove</button>
+                    <button type="button" onClick={() => removeBundle(bundle.bundleId)} disabled={mutating} aria-label={`Remove ${bundle.name} bundle`} className="text-xs text-muted-foreground underline underline-offset-4 disabled:opacity-40">Remove</button>
                   </div>
                 </li>
               ))}
@@ -230,6 +237,7 @@ export function CartDrawer() {
                               quantity: line.quantity - 1,
                             })
                           }
+                          disabled={mutating || line.quantity <= 1}
                           className="px-2 py-0.5 text-sm hover:bg-muted"
                           aria-label="Decrease quantity"
                         >
@@ -245,7 +253,7 @@ export function CartDrawer() {
                               quantity: line.quantity + 1,
                             })
                           }
-                          disabled={line.quantity >= line.stock}
+                          disabled={mutating || line.quantity >= line.stock}
                           className="px-2 py-0.5 text-sm hover:bg-muted disabled:opacity-40"
                           aria-label="Increase quantity"
                         >
@@ -254,6 +262,7 @@ export function CartDrawer() {
                       </div>
                       <button
                         onClick={() => removeItem(line.variantId)}
+                        disabled={mutating}
                         className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
                       >
                         Remove

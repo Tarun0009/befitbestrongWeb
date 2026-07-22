@@ -35,7 +35,12 @@
       "unrs-resolver"
     ],
     "overrides": {
-      "postcss": "8.5.16"
+      "postcss": "8.5.16",
+      "fast-uri": "3.1.4",
+      "sharp": "0.35.0",
+      "uuid": "11.1.1",
+      "@opentelemetry/core": "2.8.0",
+      "@hono/node-server": "2.0.10"
     }
   },
   "devDependencies": {

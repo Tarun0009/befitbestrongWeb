@@ -2,8 +2,8 @@ import express, { Router, type Request, type Response } from "express";
 import { prisma } from "../../config/db.js";
 import { logger } from "../../config/logger.js";
 import { verifyWebhookSignature } from "../../lib/razorpay.js";
-import { paymentEventsQueue } from "../../lib/queue.js";
 import { courierEventsQueue } from "../../lib/queue.js";
+import { enqueuePaymentEvent } from "./paymentEventDelivery.service.js";
 import { env } from "../../config/env.js";
 import {
   hashWebhookBody,
@@ -64,7 +64,14 @@ router.post("/razorpay", async (req: Request, res: Response) => {
 
   // Razorpay's `id` isn't always present on the outer envelope; fall back to
   // a deterministic composite id derived from event type + payment/order id.
-  const eventId = extractEventId(payload);
+  const providerEventId = req.header("x-razorpay-event-id");
+  if (
+    providerEventId &&
+    (providerEventId.length > 200 || !/^[A-Za-z0-9_.:-]+$/.test(providerEventId))
+  ) {
+    return res.status(400).json({ error: { code: "invalid_event_id" } });
+  }
+  const eventId = providerEventId ?? extractEventId(payload);
   if (!eventId) {
     logger.warn({ event: payload.event }, "razorpay webhook: no event id");
     return res.status(400).json({ error: { code: "no_event_id" } });
@@ -106,11 +113,14 @@ router.post("/razorpay", async (req: Request, res: Response) => {
   }
 
   try {
-    await paymentEventsQueue.add(
-      "process",
-      { webhookEventId },
-      { jobId: webhookEventId }, // dedupe queue-side too
-    );
+    const enqueueOutcome = await enqueuePaymentEvent(webhookEventId);
+    if (enqueueOutcome === "DEAD_LETTERED") {
+      logger.error(
+        { eventId, webhookEventId },
+        "razorpay webhook is in the dead-letter queue",
+      );
+      return res.status(202).json({ received: true, manualReview: true });
+    }
   } catch (err) {
     // The durable row remains unprocessed. A non-2xx asks Razorpay to retry;
     // the conflict-safe path above will then re-enqueue this same row.

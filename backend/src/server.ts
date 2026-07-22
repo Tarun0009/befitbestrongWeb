@@ -26,6 +26,10 @@ import {
   scheduleEmailOutbox,
   startEmailOutboxWorker,
 } from "./jobs/emailOutbox.js";
+import {
+  schedulePaymentReconciliation,
+  startPaymentReconciliationWorker,
+} from "./jobs/paymentReconciliation.js";
 
 const app = createApp();
 const runtimeConfiguration = getRuntimeConfigurationStatus(env);
@@ -51,6 +55,7 @@ const courierReconciliationWorker = startCourierReconciliationWorker();
 const checkoutExpiryWorker = startCheckoutExpiryWorker();
 const refundReconciliationWorker = startRefundReconciliationWorker();
 const emailOutboxWorker = startEmailOutboxWorker();
+const paymentReconciliationWorker = startPaymentReconciliationWorker();
 void scheduleSubscriptionRenewals().catch((error) => {
   logger.error({ error }, "subscription renewal schedule failed");
 });
@@ -66,6 +71,9 @@ void scheduleRefundReconciliation().catch((error) => {
 void scheduleEmailOutbox().catch((error) => {
   logger.error({ error }, "email outbox schedule failed");
 });
+void schedulePaymentReconciliation().catch((error) => {
+  logger.error({ error }, "payment reconciliation schedule failed");
+});
 
 async function shutdown(signal: string) {
   logger.info({ signal }, "shutting down");
@@ -78,6 +86,7 @@ async function shutdown(signal: string) {
       checkoutExpiryWorker.close(),
       refundReconciliationWorker.close(),
       emailOutboxWorker.close(),
+      paymentReconciliationWorker.close(),
       prisma.$disconnect(),
       redis.quit(),
     ]);

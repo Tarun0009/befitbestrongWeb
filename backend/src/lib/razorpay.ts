@@ -288,6 +288,29 @@ export interface CreateRazorpayOrderInput {
   notes?: Record<string, string>;
 }
 
+export interface RazorpayPayment {
+  id: string;
+  order_id: string;
+  amount: number;
+  currency: string;
+  status: "created" | "authorized" | "captured" | "refunded" | "failed";
+  notes?: Record<string, string>;
+  createdAt: number | null;
+  rawPayload: Record<string, unknown>;
+}
+
+export interface FetchRazorpayPaymentInput {
+  paymentId: string;
+  orderId: string;
+  amount: number;
+  currency: string;
+}
+
+export type FetchRazorpayOrderPaymentsInput = Omit<
+  FetchRazorpayPaymentInput,
+  "paymentId"
+>;
+
 function parseOrder(
   body: unknown,
   expected: CreateRazorpayOrderInput,
@@ -313,6 +336,52 @@ function parseOrder(
     currency: body.currency.toUpperCase(),
     receipt: body.receipt,
     status: body.status,
+  };
+}
+
+const PAYMENT_STATUSES = new Set([
+  "created",
+  "authorized",
+  "captured",
+  "refunded",
+  "failed",
+]);
+
+function parsePayment(
+  body: unknown,
+  expected: FetchRazorpayOrderPaymentsInput,
+  operation: string,
+): RazorpayPayment {
+  if (!isRecord(body)) throw contractError(operation, "payment is not an object");
+  if (
+    typeof body.id !== "string" ||
+    !body.id ||
+    body.order_id !== expected.orderId ||
+    body.amount !== expected.amount ||
+    typeof body.currency !== "string" ||
+    body.currency.toUpperCase() !== expected.currency.toUpperCase() ||
+    typeof body.status !== "string" ||
+    !PAYMENT_STATUSES.has(body.status)
+  ) {
+    throw contractError(
+      operation,
+      "payment identifiers, amount, currency, or status differ",
+    );
+  }
+  return {
+    id: body.id,
+    order_id: body.order_id,
+    amount: body.amount,
+    currency: body.currency.toUpperCase(),
+    status: body.status as RazorpayPayment["status"],
+    ...(isRecord(body.notes)
+      ? { notes: body.notes as Record<string, string> }
+      : {}),
+    createdAt:
+      typeof body.created_at === "number" && Number.isSafeInteger(body.created_at)
+        ? body.created_at
+        : null,
+    rawPayload: body,
   };
 }
 
@@ -476,6 +545,60 @@ export function createRazorpayClient(
     throw providerHttpError("create_order", response);
   }
 
+  async function fetchPayment(
+    input: FetchRazorpayPaymentInput,
+  ): Promise<RazorpayPayment> {
+    let response: ProviderResponse;
+    try {
+      response = await call(
+        "fetch_payment",
+        `/payments/${encodeURIComponent(input.paymentId)}`,
+        { method: "GET", headers: commonHeaders },
+      );
+    } catch (error) {
+      if (error instanceof RazorpayTransportError) {
+        throw providerTransportError("fetch_payment", error);
+      }
+      throw error;
+    }
+    if (!response.ok) throw providerHttpError("fetch_payment", response);
+    const payment = parsePayment(response.body, input, "fetch_payment");
+    if (payment.id !== input.paymentId) {
+      throw contractError("fetch_payment", "payment id differs");
+    }
+    return payment;
+  }
+
+  async function fetchOrderPayments(
+    input: FetchRazorpayOrderPaymentsInput,
+  ): Promise<RazorpayPayment[]> {
+    let response: ProviderResponse;
+    try {
+      response = await call(
+        "fetch_order_payments",
+        `/orders/${encodeURIComponent(input.orderId)}/payments`,
+        { method: "GET", headers: commonHeaders },
+      );
+    } catch (error) {
+      if (error instanceof RazorpayTransportError) {
+        throw providerTransportError("fetch_order_payments", error);
+      }
+      throw error;
+    }
+    if (!response.ok) {
+      throw providerHttpError("fetch_order_payments", response);
+    }
+    if (!isRecord(response.body) || !Array.isArray(response.body.items)) {
+      throw contractError(
+        "fetch_order_payments",
+        "payment collection items are missing",
+      );
+    }
+    return response.body.items.map((item) =>
+      parsePayment(item, input, "fetch_order_payments"),
+    );
+  }
+
   async function refundPayment(
     input: RefundRazorpayPaymentInput,
   ): Promise<RazorpayRefund> {
@@ -544,7 +667,14 @@ export function createRazorpayClient(
     return refund;
   }
 
-  return { createOrder, findOrderByReceipt, refundPayment, fetchRefund };
+  return {
+    createOrder,
+    findOrderByReceipt,
+    fetchPayment,
+    fetchOrderPayments,
+    refundPayment,
+    fetchRefund,
+  };
 }
 
 export function isRazorpayConfigured(): boolean {
@@ -583,6 +713,18 @@ export function createRazorpayOrder(
   return configuredClient().createOrder(input);
 }
 
+export function fetchRazorpayPayment(
+  input: FetchRazorpayPaymentInput,
+): Promise<RazorpayPayment> {
+  return configuredClient().fetchPayment(input);
+}
+
+export function fetchRazorpayOrderPayments(
+  input: FetchRazorpayOrderPaymentsInput,
+): Promise<RazorpayPayment[]> {
+  return configuredClient().fetchOrderPayments(input);
+}
+
 export function refundRazorpayPayment(
   input: RefundRazorpayPaymentInput,
 ): Promise<RazorpayRefund> {
@@ -595,6 +737,27 @@ export function fetchRazorpayRefund(input: {
   amount: number;
 }): Promise<RazorpayRefund> {
   return configuredClient().fetchRefund(input);
+}
+
+export function verifyCheckoutPaymentSignature(input: {
+  orderId: string;
+  paymentId: string;
+  signature: string;
+}): boolean {
+  if (!env.RAZORPAY_KEY_SECRET) {
+    logger.error("RAZORPAY_KEY_SECRET is missing — checkout signature rejected");
+    return false;
+  }
+  const expected = crypto
+    .createHmac("sha256", env.RAZORPAY_KEY_SECRET)
+    .update(`${input.orderId}|${input.paymentId}`)
+    .digest("hex");
+  const expectedBuffer = Buffer.from(expected, "utf8");
+  const signatureBuffer = Buffer.from(input.signature, "utf8");
+  return (
+    expectedBuffer.length === signatureBuffer.length &&
+    crypto.timingSafeEqual(expectedBuffer, signatureBuffer)
+  );
 }
 
 /** Verify X-Razorpay-Signature against the exact raw request bytes. */

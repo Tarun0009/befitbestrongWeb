@@ -8,6 +8,7 @@ export interface CheckoutRequestIdentity {
   couponCode?: string | null;
   address: CheckoutAddress;
   paymentMethod: "PREPAID" | "COD";
+  cartRevision: string;
 }
 
 function sha256(value: string): string {
@@ -28,6 +29,7 @@ export function checkoutRequestHash(input: CheckoutRequestIdentity): string {
     contactEmail: input.contactEmail.trim().toLowerCase(),
     couponCode: input.couponCode?.trim().toUpperCase() || null,
     paymentMethod: input.paymentMethod,
+    cartRevision: input.cartRevision,
     address: {
       fullName: input.address.fullName.trim(),
       phone: input.address.phone.trim(),

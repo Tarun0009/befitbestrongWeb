@@ -12,6 +12,7 @@ router.get("/notifications", async (req, res, next) => {
         limit: z.coerce.number().int().positive().max(100).default(20),
         unreadOnly: z.enum(["true", "false"]).default("false"),
       })
+      .strict()
       .parse(req.query);
     const userId = req.auth!.userId;
     const unreadWhere = { receipts: { none: { userId } } };

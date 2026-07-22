@@ -1,6 +1,8 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
 import { optionalAuth } from "../../middleware/optionalAuth.js";
+import { rateLimit } from "../../middleware/rateLimit.js";
+import { rateLimitPolicies } from "../../config/rateLimitConfig.js";
 import { env } from "../../config/env.js";
 import { HttpError } from "../../middleware/errorHandler.js";
 import { getCart, type CartOwner } from "../cart/cart.service.js";
@@ -8,6 +10,7 @@ import {
   cancelCheckout,
   createCheckoutSession,
   devCompleteOrder,
+  verifyCheckoutPayment,
 } from "./checkout.service.js";
 import { isRazorpayConfigured } from "../../lib/razorpay.js";
 import { calculateCouponDiscount } from "./coupon.service.js";
@@ -15,16 +18,27 @@ import { calculateCouponDiscount } from "./coupon.service.js";
 const router = Router();
 const CART_COOKIE = "cart_sid";
 
-router.get("/config", (_req, res) => {
+router.get(
+  "/config",
+  rateLimit({ keyPrefix: "checkout-config", ...rateLimitPolicies.public }),
+  (_req, res) => {
   res.json({
     paymentsEnabled: env.PAYMENTS_ENABLED,
     razorpayConfigured: isRazorpayConfigured(),
     razorpayKeyId: env.RAZORPAY_KEY_ID ?? null,
     devMode: env.NODE_ENV !== "production",
   });
-});
+  },
+);
 
 router.use(optionalAuth);
+router.use(
+  rateLimit({
+    keyPrefix: "checkout",
+    ...rateLimitPolicies.authenticated,
+    accountKeyBy: (req) => req.auth?.userId,
+  }),
+);
 
 const addressBody = z.object({
   fullName: z.string().trim().min(1).max(120),
@@ -38,14 +52,14 @@ const addressBody = z.object({
   state: z.string().trim().min(1).max(80),
   pincode: z.string().trim().regex(/^[1-9]\d{5}$/),
   country: z.literal("IN").optional(),
-});
+}).strict();
 
 const sessionBody = z.object({
   email: z.string().trim().email().optional(),
   couponCode: z.string().trim().max(32).optional().nullable(),
   paymentMethod: z.enum(["PREPAID", "COD"]).default("PREPAID"),
   address: addressBody,
-});
+}).strict();
 
 const idempotencyKey = z
   .string()
@@ -76,6 +90,7 @@ router.post("/coupon/validate", async (req, res, next) => {
   try {
     const { code } = z
       .object({ code: z.string().trim().min(2).max(32) })
+      .strict()
       .parse(req.body);
     const cart = await getCart(resolveCheckoutOwner(req));
     if (cart.items.length === 0) {
@@ -123,7 +138,7 @@ router.post("/session", async (req, res, next) => {
 const orderAccessBody = z.object({
   orderId: z.string().cuid(),
   guestAccessToken: z.string().min(32).max(200).optional(),
-});
+}).strict();
 
 router.post("/cancel", async (req, res, next) => {
   try {
@@ -134,6 +149,29 @@ router.post("/cancel", async (req, res, next) => {
       orderId,
     );
     res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+const verifyPaymentBody = orderAccessBody.extend({
+  providerOrderId: z.string().trim().min(6).max(100),
+  providerPaymentId: z.string().trim().min(6).max(100),
+  signature: z.string().trim().regex(/^[a-f0-9]{64}$/i),
+}).strict();
+
+router.post("/verify-payment", async (req, res, next) => {
+  try {
+    const body = verifyPaymentBody.parse(req.body);
+    const result = await verifyCheckoutPayment({
+      userId: req.auth?.userId ?? null,
+      guestAccessToken: body.guestAccessToken ?? null,
+      orderId: body.orderId,
+      providerOrderId: body.providerOrderId,
+      providerPaymentId: body.providerPaymentId,
+      signature: body.signature,
+    });
+    res.json(result);
   } catch (err) {
     next(err);
   }

@@ -10,6 +10,7 @@ const request = {
   contactEmail: "buyer@example.com",
   couponCode: "WELCOME",
   paymentMethod: "COD" as const,
+  cartRevision: "cart-revision-7",
   address: {
     fullName: "Test Buyer",
     phone: "9876543210",
@@ -43,6 +44,9 @@ describe("checkout idempotency policy", () => {
         ...request,
         address: { ...request.address, pincode: "110001" },
       }),
+    ).not.toBe(checkoutRequestHash(request));
+    expect(
+      checkoutRequestHash({ ...request, cartRevision: "cart-revision-8" }),
     ).not.toBe(checkoutRequestHash(request));
   });
 

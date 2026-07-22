@@ -13,8 +13,8 @@ export default function AdminCouponsPage() {
   const { data, isLoading } = useAdminListCouponsQuery();
   const [createCoupon, { isLoading: creating }] =
     useAdminCreateCouponMutation();
-  const [updateCoupon] = useAdminUpdateCouponMutation();
-  const [deleteCoupon] = useAdminDeleteCouponMutation();
+  const [updateCoupon, { isLoading: updating }] = useAdminUpdateCouponMutation();
+  const [deleteCoupon, { isLoading: deleting }] = useAdminDeleteCouponMutation();
 
   const [code, setCode] = useState("");
   const [description, setDescription] = useState("");
@@ -235,14 +235,16 @@ export default function AdminCouponsPage() {
                             body: { active: !coupon.active },
                           })
                         }
-                        className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
+                        disabled={updating || deleting}
+                        className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted disabled:opacity-50"
                       >
                         {coupon.active ? "Deactivate" : "Activate"}
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDelete(coupon.id, coupon.code)}
-                        className="ml-2 px-2 py-1.5 text-xs font-semibold text-red-600"
+                        disabled={updating || deleting}
+                        className="ml-2 px-2 py-1.5 text-xs font-semibold text-red-600 disabled:opacity-50"
                       >
                         Delete
                       </button>

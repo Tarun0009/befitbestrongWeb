@@ -16,11 +16,13 @@ import { logger } from "../config/logger.js";
 // the rest of the app; BullMQ opens its own connections.
 const connection: ConnectionOptions = { url: env.REDIS_URL };
 
+export const PAYMENT_EVENT_MAX_ATTEMPTS = 5;
+
 export const paymentEventsQueue = new Queue("payment-events", {
   connection,
   defaultJobOptions: {
     // Retry with exponential backoff; webhooks should be at-least-once.
-    attempts: 5,
+    attempts: PAYMENT_EVENT_MAX_ATTEMPTS,
     backoff: { type: "exponential", delay: 1000 },
     removeOnComplete: { count: 500 },
     removeOnFail: { count: 100 },
@@ -98,6 +100,23 @@ export const checkoutExpiryQueue = new Queue("checkout-expiry", {
 
 checkoutExpiryQueue.on("error", (err) =>
   logger.error({ err }, "checkout-expiry queue error"),
+);
+
+export const paymentReconciliationQueue = new Queue(
+  "payment-reconciliation",
+  {
+    connection,
+    defaultJobOptions: {
+      attempts: 3,
+      backoff: { type: "exponential", delay: 5000 },
+      removeOnComplete: { count: 100 },
+      removeOnFail: { count: 100 },
+    },
+  },
+);
+
+paymentReconciliationQueue.on("error", (err) =>
+  logger.error({ err }, "payment-reconciliation queue error"),
 );
 
 export const refundReconciliationQueue = new Queue("refund-reconciliation", {

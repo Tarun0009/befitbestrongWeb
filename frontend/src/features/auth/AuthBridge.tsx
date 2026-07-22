@@ -11,6 +11,7 @@ import {
 } from "./authSlice";
 import { authApi } from "@/lib/authApi";
 import { cartApi } from "@/lib/cartApi";
+import { setMergeNotice } from "@/features/cart/cartSlice";
 
 export function AuthBridge() {
   const dispatch = useAppDispatch();
@@ -50,9 +51,16 @@ export function AuthBridge() {
           console.error("[AuthBridge] /auth/session sync failed", err);
         }
         // Merge any guest cart into the user cart. Idempotent server-side;
-        // safe even if there's no cookie or the guest cart was empty.
+        // safe even if there's no cookie or the guest cart was empty. When
+        // the server reports actual merge activity, populate a toast so the
+        // user isn't surprised by unexpected quantities in their cart.
         try {
-          await dispatch(cartApi.endpoints.mergeGuestCart.initiate()).unwrap();
+          const mergeResult = await dispatch(
+            cartApi.endpoints.mergeGuestCart.initiate(),
+          ).unwrap();
+          if (mergeResult.summary) {
+            dispatch(setMergeNotice(mergeResult.summary));
+          }
         } catch (err) {
           console.warn("[AuthBridge] cart merge failed", err);
         }

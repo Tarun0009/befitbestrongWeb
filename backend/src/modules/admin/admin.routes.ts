@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, requireRole } from "../../middleware/auth.js";
+import { rateLimit } from "../../middleware/rateLimit.js";
+import { rateLimitPolicies } from "../../config/rateLimitConfig.js";
 import { HttpError } from "../../middleware/errorHandler.js";
 import { updateUserRole } from "../auth/auth.service.js";
 import adminCatalogRoutes from "./adminCatalog.routes.js";
@@ -20,7 +22,15 @@ import adminEmailOutboxRoutes from "../notifications/adminEmailOutbox.routes.js"
 
 const router = Router();
 
-router.use(requireAuth, requireRole("ADMIN"));
+router.use(
+  requireAuth,
+  requireRole("ADMIN"),
+  rateLimit({
+    keyPrefix: "admin",
+    ...rateLimitPolicies.authenticated,
+    accountKeyBy: (req) => req.auth?.userId,
+  }),
+);
 router.use("/", adminCatalogRoutes);
 router.use("/", adminCustomersRoutes);
 router.use("/", adminOrdersRoutes);
@@ -38,11 +48,11 @@ router.use("/", adminEmailOutboxRoutes);
 
 const roleBody = z.object({
   role: z.enum(["CUSTOMER", "ADMIN"]),
-});
+}).strict();
 
 const idParam = z.object({
   id: z.string().cuid(),
-});
+}).strict();
 
 router.post("/users/:id/role", async (req, res, next) => {
   try {

@@ -18,6 +18,7 @@ import {
   useDevCompleteOrderMutation,
   useGetCheckoutConfigQuery,
   useValidateCouponMutation,
+  useVerifyCheckoutPaymentMutation,
   type CheckoutAddress,
   type CouponValidation,
   type PaymentMethod,
@@ -27,9 +28,21 @@ import { formatINR } from "@/lib/format";
 import { PincodeChecker } from "@/features/serviceability/PincodeChecker";
 import type { ServiceabilityResult } from "@/features/serviceability/serviceabilityApi";
 
+interface RazorpaySuccessResponse {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}
+
+interface RazorpayOptions {
+  handler: (response: RazorpaySuccessResponse) => void;
+  modal?: { ondismiss?: () => void };
+  [key: string]: unknown;
+}
+
 declare global {
   interface Window {
-    Razorpay?: new (options: unknown) => { open: () => void };
+    Razorpay?: new (options: RazorpayOptions) => { open: () => void };
   }
 }
 
@@ -66,8 +79,12 @@ export default function CheckoutPage() {
   const paymentsEnabled = config?.paymentsEnabled ?? true;
   const [createSession, { isLoading: creating }] =
     useCreateCheckoutSessionMutation();
-  const [devComplete] = useDevCompleteOrderMutation();
+  const [devComplete, { isLoading: completing }] = useDevCompleteOrderMutation();
 
+  const [verifyPayment, { isLoading: verifying }] =
+    useVerifyCheckoutPaymentMutation();
+  const payingRef = useRef(false);
+  const [paymentWindowOpen, setPaymentWindowOpen] = useState(false);
   const [email, setEmail] = useState(user?.email ?? "");
   const [address, setAddress] = useState<CheckoutAddress>({
     ...EMPTY_ADDRESS,
@@ -137,20 +154,33 @@ export default function CheckoutPage() {
   }
 
   async function handlePay() {
+    if (payingRef.current) return;
+    payingRef.current = true;
+    let keepLockedForPaymentWindow = false;
     setError(null);
+
     const checkoutBody = {
       address,
       email: user?.email ?? email.trim(),
       couponCode: coupon?.code,
       paymentMethod,
     };
-    const fingerprint = JSON.stringify(checkoutBody);
+    const fingerprint = JSON.stringify({
+      checkoutBody,
+      items: (cart?.items ?? [])
+        .map((item) => [item.variantId, item.quantity])
+        .sort(([left], [right]) => String(left).localeCompare(String(right))),
+      bundles: (cart?.bundles ?? [])
+        .map((bundle) => [bundle.bundleId, bundle.quantity])
+        .sort(([left], [right]) => String(left).localeCompare(String(right))),
+    });
     if (
       !checkoutAttempt.current ||
       checkoutAttempt.current.fingerprint !== fingerprint
     ) {
       checkoutAttempt.current = { fingerprint, key: randomCheckoutKey() };
     }
+
     try {
       const session = await createSession({
         ...checkoutBody,
@@ -170,6 +200,8 @@ export default function CheckoutPage() {
         typeof window !== "undefined" &&
         window.Razorpay
       ) {
+        keepLockedForPaymentWindow = true;
+        setPaymentWindowOpen(true);
         const razorpay = new window.Razorpay({
           key: session.razorpay.keyId,
           amount: session.amount,
@@ -182,11 +214,42 @@ export default function CheckoutPage() {
             contact: address.phone,
             email: user?.email ?? email,
           },
-          handler: () => {
-            router.push("/checkout/success?orderId=" + session.orderId);
+          handler: (response: RazorpaySuccessResponse) => {
+            setPaymentWindowOpen(false);
+            void (async () => {
+              try {
+                const verified = await verifyPayment({
+                  orderId: session.orderId,
+                  guestAccessToken: session.guestAccessToken ?? undefined,
+                  providerOrderId: response.razorpay_order_id,
+                  providerPaymentId: response.razorpay_payment_id,
+                  signature: response.razorpay_signature,
+                }).unwrap();
+                const paymentStatus =
+                  verified.status === "PROCESSING"
+                    ? "&paymentStatus=processing"
+                    : "";
+                router.push(
+                  "/checkout/success?orderId=" +
+                    session.orderId +
+                    paymentStatus,
+                );
+              } catch (caught) {
+                const apiError = caught as {
+                  data?: { error?: { message?: string } };
+                };
+                setError(
+                  apiError.data?.error?.message ??
+                    "Payment could not be verified. Your order remains safe; contact support if you were charged.",
+                );
+                payingRef.current = false;
+              }
+            })();
           },
           modal: {
             ondismiss: () => {
+              setPaymentWindowOpen(false);
+              payingRef.current = false;
               router.push("/checkout/failure?orderId=" + session.orderId);
             },
           },
@@ -214,9 +277,9 @@ export default function CheckoutPage() {
         apiError.status === "TIMEOUT_ERROR" ||
         apiError.data?.error?.code === "checkout_in_progress";
       if (!retrySameAttempt) checkoutAttempt.current = null;
-      setError(
-        apiError.data?.error?.message ?? "Could not start checkout.",
-      );
+      setError(apiError.data?.error?.message ?? "Could not start checkout.");
+    } finally {
+      if (!keepLockedForPaymentWindow) payingRef.current = false;
     }
   }
 
@@ -306,7 +369,7 @@ export default function CheckoutPage() {
             address={address}
             onEdit={() => setStep("details")}
             onPay={handlePay}
-            paying={creating}
+            paying={creating || completing || verifying || paymentWindowOpen}
             error={error}
             devMode={!config?.razorpayConfigured && Boolean(config?.devMode)}
             paymentsEnabled={paymentsEnabled}
