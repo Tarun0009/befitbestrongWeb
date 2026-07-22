@@ -216,8 +216,8 @@ try {
     "CANCELLED",
   );
 
-  const ignoredEvent = await createWebhook("ignored", "payment.authorized", {
-    event: "payment.authorized",
+  const ignoredEvent = await createWebhook("ignored", "order.paid", {
+    event: "order.paid",
     payload: {},
   });
   const ignoredResult = await processPaymentEvent(ignoredEvent.id);

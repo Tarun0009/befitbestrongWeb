@@ -78,8 +78,8 @@ describe("parseRazorpayPaymentEvent", () => {
   it("audits unsupported signed events as ignored", () => {
     const result = parseRazorpayPaymentEvent({
       provider: "razorpay",
-      recordedEventType: "payment.refunded",
-      payload: { event: "payment.refunded", payload: {} },
+      recordedEventType: "order.paid",
+      payload: { event: "order.paid", payload: {} },
     });
     expect(result).toMatchObject({
       kind: "FINAL",
