@@ -30,6 +30,10 @@ import {
   schedulePaymentReconciliation,
   startPaymentReconciliationWorker,
 } from "./jobs/paymentReconciliation.js";
+import {
+  scheduleAccountDeletion,
+  startAccountDeletionWorker,
+} from "./jobs/accountDeletion.js";
 
 const app = createApp();
 const runtimeConfiguration = getRuntimeConfigurationStatus(env);
@@ -56,6 +60,7 @@ const checkoutExpiryWorker = startCheckoutExpiryWorker();
 const refundReconciliationWorker = startRefundReconciliationWorker();
 const emailOutboxWorker = startEmailOutboxWorker();
 const paymentReconciliationWorker = startPaymentReconciliationWorker();
+const accountDeletionWorker = startAccountDeletionWorker();
 void scheduleSubscriptionRenewals().catch((error) => {
   logger.error({ error }, "subscription renewal schedule failed");
 });
@@ -74,6 +79,9 @@ void scheduleEmailOutbox().catch((error) => {
 void schedulePaymentReconciliation().catch((error) => {
   logger.error({ error }, "payment reconciliation schedule failed");
 });
+void scheduleAccountDeletion().catch((error) => {
+  logger.error({ error }, "account deletion schedule failed");
+});
 
 async function shutdown(signal: string) {
   logger.info({ signal }, "shutting down");
@@ -87,6 +95,7 @@ async function shutdown(signal: string) {
       refundReconciliationWorker.close(),
       emailOutboxWorker.close(),
       paymentReconciliationWorker.close(),
+      accountDeletionWorker.close(),
       prisma.$disconnect(),
       redis.quit(),
     ]);

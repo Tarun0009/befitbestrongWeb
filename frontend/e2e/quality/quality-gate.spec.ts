@@ -56,9 +56,12 @@ test("customer can move from the homepage into the seeded catalog", async ({
 
   await catalogLink.click();
   await expect(page).toHaveURL(/\/shop$/);
-  await expect(page.getByRole("heading", { level: 1, name: "Shop" })).toBeVisible();
-  await expect(page.getByText(/\d+ products?/)).toBeVisible();
-  await expect(page.locator("article").first()).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Everything you need to train." }),
+  ).toBeVisible();
+  const results = page.getByRole("region", { name: "Latest products" });
+  await expect(results).toBeVisible();
+  await expect(results.locator("article").first()).toBeVisible();
 
   await page.getByRole("button", { name: /Supplements/ }).click();
   await expect(page).toHaveURL(/category=supplements/);
@@ -79,7 +82,7 @@ test("unauthenticated admin access is redirected and the API stays protected", a
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   await expect(page.getByLabel("Email")).toBeVisible();
-  await expect(page.getByLabel("Password")).toBeVisible();
+  await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
 });
 
 test("homepage has no automatically detectable WCAG A or AA violations", async ({

@@ -43,6 +43,31 @@ const baseEnvSchema = z.object({
   CORS_ORIGIN: z.string().min(1).default("http://localhost:3005"),
   FRONTEND_URL: z.string().url().default("http://localhost:3005"),
 
+  // Sensitive account actions require a recent Firebase authentication.
+  // Deletion is recoverable until the grace period expires, then a bounded
+  // background scan finalizes and anonymizes the account.
+  ACCOUNT_RECENT_AUTH_MAX_AGE_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(60)
+    .max(3_600)
+    .default(300),
+  ACCOUNT_EMAIL_CHANGE_TTL_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(10)
+    .max(1_440)
+    .default(60),
+  ACCOUNT_DELETION_GRACE_DAYS: z.coerce.number().int().min(0).max(90).default(14),
+  ACCOUNT_DELETION_SCAN_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(10)
+    .max(86_400)
+    .default(300),
+  ACCOUNT_DELETION_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(20),
+  ACCOUNT_SESSION_IDLE_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+
   // Rate limits are configuration rather than route constants, so operators
   // can tune them for traffic and provider limits without a code deploy.
   RATE_LIMIT_AUTH_IP_MAX: z.coerce.number().int().positive().max(100_000).default(10),

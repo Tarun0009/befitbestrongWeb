@@ -22,7 +22,7 @@ export async function queueBackInStockNotifications(
     return { attempted: 0, queued: 0 };
   }
   const alerts = await tx.stockAlert.findMany({
-    where: { variantId, active: true },
+    where: { variantId, active: true, user: { accountStatus: "ACTIVE" } },
     include: {
       user: { select: { email: true } },
       variant: {

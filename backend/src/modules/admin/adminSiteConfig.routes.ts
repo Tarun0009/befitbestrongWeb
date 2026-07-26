@@ -19,6 +19,85 @@ router.get("/site-config", async (_req, res, next) => {
   }
 });
 
+const homepageContentSchema = z
+  .object({
+    valueProps: z
+      .object({
+        enabled: z.boolean(),
+        items: z
+          .array(
+            z
+              .object({
+                mark: z.string().trim().min(1).max(12),
+                title: z.string().trim().min(1).max(80),
+                body: z.string().trim().min(1).max(240),
+              })
+              .strict(),
+          )
+          .max(6),
+      })
+      .strict(),
+    categories: z
+      .object({
+        enabled: z.boolean(),
+        eyebrow: z.string().trim().min(1).max(60),
+        title: z.string().trim().min(1).max(120),
+        ctaLabel: z.string().trim().min(1).max(60),
+        ctaHref: safeNavigationHref,
+        items: z
+          .array(
+            z
+              .object({
+                tag: z.string().trim().min(1).max(40),
+                title: z.string().trim().min(1).max(80),
+                slug: z
+                  .string()
+                  .trim()
+                  .min(1)
+                  .max(80)
+                  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+                imageUrl: safeHttpUrl,
+                blurb: z.string().trim().min(1).max(240),
+              })
+              .strict(),
+          )
+          .max(8),
+      })
+      .strict(),
+    featured: z
+      .object({
+        enabled: z.boolean(),
+        eyebrow: z.string().trim().min(1).max(60),
+        title: z.string().trim().min(1).max(120),
+        ctaLabel: z.string().trim().min(1).max(60),
+        ctaHref: safeNavigationHref,
+      })
+      .strict(),
+    recentlyViewedEnabled: z.boolean(),
+    spotlightBullets: z
+      .array(
+        z
+          .object({
+            title: z.string().trim().min(1).max(100),
+            body: z.string().trim().min(1).max(240),
+          })
+          .strict(),
+      )
+      .max(6),
+    support: z
+      .object({
+        enabled: z.boolean(),
+        eyebrow: z.string().trim().min(1).max(60),
+        title: z.string().trim().min(1).max(120),
+        body: z.string().trim().min(1).max(400),
+        cardBody: z.string().trim().min(1).max(240),
+        ctaLabel: z.string().trim().min(1).max(60),
+        ctaHref: safeNavigationHref,
+      })
+      .strict(),
+  })
+  .strict();
+
 const patchBody = requireAtLeastOneField(
   z
   .object({
@@ -34,7 +113,7 @@ const patchBody = requireAtLeastOneField(
     heroHighlight: z.string().max(80).nullable().optional(),
     heroSubtitle: z.string().min(1).max(400).optional(),
     heroPrimaryLabel: z.string().min(1).max(60).optional(),
-    heroPrimaryHref: safeNavigationHref,
+    heroPrimaryHref: safeNavigationHref.optional(),
     heroSecondaryLabel: z.string().max(60).nullable().optional(),
     heroSecondaryHref: safeNavigationHref.nullable().optional(),
     // Featured
@@ -73,6 +152,7 @@ const patchBody = requireAtLeastOneField(
     spotlightBody: z.string().max(400).nullable().optional(),
     spotlightCtaLabel: z.string().max(40).nullable().optional(),
     spotlightCtaHref: safeNavigationHref.nullable().optional(),
+    homepageContent: homepageContentSchema.optional(),
     })
     .strict(),
 );

@@ -16,6 +16,8 @@ const statuses = [
 const templates = [
   "ORDER_STATUS",
   "ADMIN_ORDER_ALERT",
+  "ACCOUNT_SECURITY",
+  "EMAIL_CHANGE_CONFIRMATION",
   "SUBSCRIPTION_RENEWAL",
   "BACK_IN_STOCK",
 ] as const;

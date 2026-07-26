@@ -7,12 +7,23 @@ import {
   type FetchBaseQueryError,
 } from "@reduxjs/toolkit/query/react";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { attachDeviceSessionHeader } from "@/features/auth/deviceSession";
 
 const API_URL = publicEnv.apiUrl;
+const PUBLIC_CATALOG_ENDPOINTS = new Set([
+  "getCategories",
+  "getProducts",
+  "getProduct",
+  "searchProducts",
+]);
 
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: API_URL,
-  prepareHeaders: async (headers) => {
+  prepareHeaders: async (headers, { endpoint }) => {
+    attachDeviceSessionHeader(headers);
+    if (PUBLIC_CATALOG_ENDPOINTS.has(endpoint)) {
+      return headers;
+    }
     try {
       const user = getFirebaseAuth().currentUser;
       if (user) {
@@ -32,6 +43,7 @@ const baseQueryWithRefresh: BaseQueryFn<
   FetchBaseQueryError
 > = async (args, api, extraOptions) => {
   let result = await rawBaseQuery(args, api, extraOptions);
+  if (PUBLIC_CATALOG_ENDPOINTS.has(api.endpoint)) return result;
   if (result.error?.status === 401) {
     try {
       const user = getFirebaseAuth().currentUser;

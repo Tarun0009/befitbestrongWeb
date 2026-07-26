@@ -8,6 +8,7 @@ import {
 import { rateLimitPolicies } from "../../config/rateLimitConfig.js";
 import { syncSession, revokeSession } from "./auth.service.js";
 
+import { DEVICE_SESSION_HEADER } from "../account/accountSession.service.js";
 const router = Router();
 const sessionRateLimit = rateLimit({
   keyPrefix: "auth-session",
@@ -27,13 +28,20 @@ const sessionBody = z.object({
 router.post("/session", sessionRateLimit, async (req, res, next) => {
   try {
     const { idToken } = sessionBody.parse(req.body);
-    const user = await syncSession(idToken);
+    const rawDeviceToken = req.header(DEVICE_SESSION_HEADER)?.trim();
+    const deviceToken = z.string().min(32).max(200).parse(rawDeviceToken);
+    const user = await syncSession(
+      idToken,
+      { token: deviceToken, userAgent: req.header("user-agent") },
+    );
     res.json({
       user: {
         id: user.id,
         email: user.email,
         name: user.name,
         role: user.role,
+        accountStatus: user.accountStatus,
+        deletionScheduledFor: user.deletionScheduledFor,
       },
     });
   } catch (err) {
@@ -48,6 +56,7 @@ router.get("/me", requireAuth, authenticatedRateLimit, (req, res) => {
       id: auth.userId,
       email: auth.email,
       role: auth.role,
+      accountStatus: auth.accountStatus,
     },
   });
 });

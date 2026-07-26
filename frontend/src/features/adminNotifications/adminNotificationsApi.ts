@@ -1,6 +1,7 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import { publicEnv } from "@/config/publicEnv";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { attachDeviceSessionHeader } from "@/features/auth/deviceSession";
 import type { OrderStatus, PaymentMethod } from "@/lib/ordersApi";
 
 export type AdminNotificationType = "ORDER_PAID" | "ORDER_COD_PLACED";
@@ -27,6 +28,7 @@ const baseQuery = fetchBaseQuery({
   baseUrl: publicEnv.apiUrl,
   credentials: "include",
   prepareHeaders: async (headers) => {
+    attachDeviceSessionHeader(headers);
     const user = getFirebaseAuth().currentUser;
     if (user) {
       headers.set("Authorization", "Bearer " + (await user.getIdToken()));

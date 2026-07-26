@@ -11,6 +11,7 @@ import {
 import { useGetSiteConfigQuery } from "@/lib/siteConfigApi";
 import { HeroCarousel } from "@/components/HeroCarousel";
 import { TabbedFeaturedGrid } from "@/components/TabbedFeaturedGrid";
+import { DEFAULT_HOMEPAGE_CONTENT } from "@/features/homepage/homepageContent";
 
 const RecentlyViewedRail = dynamic(
   () =>
@@ -21,7 +22,7 @@ const RecentlyViewedRail = dynamic(
 );
 
 export default function HomePage() {
-  const { data: config, isLoading: configLoading } = useGetSiteConfigQuery();
+  const { data: config } = useGetSiteConfigQuery();
   const { data: cats } = useGetCategoriesQuery();
   const { data: recent, isLoading: productsLoading } = useGetProductsQuery({ limit: 12 });
 
@@ -39,19 +40,20 @@ export default function HomePage() {
 
   const fallbackHeroImage = featured.find((p) => p.image?.url)?.image?.url;
   const spotlight = config?.spotlight;
+  const homepage = config?.homepage ?? DEFAULT_HOMEPAGE_CONTENT;
 
   return (
     <main className="min-h-screen bg-background text-foreground">
       <HeroCarousel
         config={config}
         fallbackImage={fallbackHeroImage}
-        loading={configLoading && !config}
       />
 
-      <section className="border-b border-border bg-muted/40">
+      {homepage.valueProps.enabled && homepage.valueProps.items.length > 0 && (
+        <section className="border-b border-border bg-muted/40">
         <div className="mx-auto grid max-w-6xl gap-4 px-6 py-6 sm:grid-cols-2 lg:grid-cols-4">
-          {VALUE_PROPS.map((item) => (
-            <div key={item.title} className="flex items-start gap-3">
+          {homepage.valueProps.items.map((item) => (
+            <div key={item.mark + "-" + item.title} className="flex items-start gap-3">
               <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-semibold text-primary-foreground">
                 {item.mark}
               </span>
@@ -64,28 +66,30 @@ export default function HomePage() {
             </div>
           ))}
         </div>
-      </section>
+        </section>
+      )}
 
-      <section className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
+      {homepage.categories.enabled && homepage.categories.items.length > 0 && (
+        <section className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              Shop by goal
+              {homepage.categories.eyebrow}
             </p>
             <h2 className="mt-2 text-3xl font-semibold tracking-tight">
-              Built for the next session
+              {homepage.categories.title}
             </h2>
           </div>
           <Link
-            href="/shop"
+            href={homepage.categories.ctaHref}
             className="rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
           >
-            All products
+            {homepage.categories.ctaLabel}
           </Link>
         </div>
 
         <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {CATEGORY_TILES.map((tile) => {
+          {homepage.categories.items.map((tile) => {
             const meta = cats?.items.find((c) => c.slug === tile.slug);
             return (
               <Link
@@ -96,8 +100,8 @@ export default function HomePage() {
                 <div className="aspect-[4/3] overflow-hidden bg-muted">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={tile.image}
-                    alt=""
+                    src={tile.imageUrl}
+                    alt={tile.title + " collection"}
                     width={900}
                     height={675}
                     loading="lazy"
@@ -125,35 +129,40 @@ export default function HomePage() {
             );
           })}
         </div>
-      </section>
+        </section>
+      )}
 
-      <section className="border-y border-border bg-muted/35">
+      {homepage.featured.enabled && (
+        <section className="border-y border-border bg-muted/35">
         <div className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                Best sellers
+                {homepage.featured.eyebrow}
               </p>
               <h2 className="mt-2 text-3xl font-semibold tracking-tight">
-                What lifters are adding to cart
+                {homepage.featured.title}
               </h2>
             </div>
             <Link
-              href="/shop?sort=newest"
+              href={homepage.featured.ctaHref}
               className="text-sm font-medium underline underline-offset-4 hover:text-muted-foreground"
             >
-              See new drops
+              {homepage.featured.ctaLabel}
             </Link>
           </div>
           <div className="mt-7">
             <TabbedFeaturedGrid products={featured} loading={productsLoading} />
           </div>
         </div>
-      </section>
+        </section>
+      )}
 
-      <div className="mx-auto max-w-6xl px-6">
-        <RecentlyViewedRail />
-      </div>
+      {homepage.recentlyViewedEnabled && (
+        <div className="mx-auto max-w-6xl px-6">
+          <RecentlyViewedRail />
+        </div>
+      )}
       {spotlight?.enabled && spotlight.title && (
         <section className="border-b border-border">
           <div className="mx-auto grid max-w-6xl gap-8 px-6 py-14 sm:py-16 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
@@ -181,7 +190,7 @@ export default function HomePage() {
               )}
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-              {SPOTLIGHT_BULLETS.map((item) => (
+              {homepage.spotlightBullets.map((item) => (
                 <div
                   key={item.title}
                   className="rounded-lg border border-border bg-background p-4"
@@ -197,85 +206,34 @@ export default function HomePage() {
         </section>
       )}
 
-      <section className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
+      {homepage.support.enabled && (
+        <section className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
         <div className="grid gap-6 border-y border-border py-10 lg:grid-cols-[1fr_420px] lg:items-center">
           <div>
             <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              Stay informed
+              {homepage.support.eyebrow}
             </p>
             <h2 className="mt-2 text-3xl font-semibold tracking-tight">
-              Clear updates, when they are ready.
+              {homepage.support.title}
             </h2>
             <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
-              Marketing email capture is not enabled yet. Order and account updates remain available from your account and checkout flow.
+              {homepage.support.body}
             </p>
           </div>
           <div className="rounded-lg border border-border bg-muted/35 p-5">
             <p className="text-sm leading-6 text-muted-foreground">
-              Looking for help with delivery, an order, or a return?
+              {homepage.support.cardBody}
             </p>
             <Link
-              href="/support"
+              href={homepage.support.ctaHref}
               className="mt-4 inline-flex rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90"
             >
-              Visit customer support
+              {homepage.support.ctaLabel}
             </Link>
           </div>
         </div>
-      </section>
+        </section>
+      )}
     </main>
   );
 }
-
-const CATEGORY_TILES = [
-  {
-    tag: "Fuel",
-    title: "Supplements",
-    slug: "supplements",
-    image: "https://images.unsplash.com/photo-1593095948071-474c5cc2989d?w=900",
-    blurb: "Whey, creatine, pre-workout, aminos, and daily health basics.",
-  },
-  {
-    tag: "Iron",
-    title: "Equipment",
-    slug: "equipment",
-    image: "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=900",
-    blurb: "Dumbbells, kettlebells, benches, bands, and home-gym staples.",
-  },
-  {
-    tag: "Uniform",
-    title: "Apparel",
-    slug: "apparel",
-    image: "https://images.unsplash.com/photo-1595078475328-1ab05d0a6a0e?w=900",
-    blurb: "Compression tees, shorts, joggers, and layers cut for training.",
-  },
-  {
-    tag: "Kit",
-    title: "Accessories",
-    slug: "accessories",
-    image: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=900",
-    blurb: "Belts, wraps, straps, shakers, gloves, and the small useful stuff.",
-  },
-];
-
-const VALUE_PROPS = [
-  { mark: "PIN", title: "Delivery checked", body: "Confirm coverage for your six-digit PIN code." },
-  { mark: "₹", title: "Clear pricing", body: "Review the current price and applicable offer at checkout." },
-  { mark: "STOCK", title: "Live availability", body: "Product stock is checked before an order is confirmed." },
-  { mark: "ORD", title: "Order visibility", body: "Follow status and available actions from your account." },
-];
-
-const SPOTLIGHT_BULLETS = [
-  {
-    title: "No hidden blends",
-    body: "Supplements favor full labels, useful dosages, and products you can compare.",
-  },
-  {
-    title: "Home-gym ready",
-    body: "Equipment is selected for compact setups, repeat use, and sensible shipping.",
-  },
-  {
-    title: "Training-first fits",
-    body: "Apparel is judged by movement, sweat, and repeat washing before the mirror.",
-  },
-];

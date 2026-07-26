@@ -172,7 +172,11 @@ export async function listProductReviews(
   limit: number,
 ) {
   const product = await findProduct(productSlug);
-  const where = { productId: product.id, status: "APPROVED" as const };
+  const where = {
+    productId: product.id,
+    status: "APPROVED" as const,
+    user: { accountStatus: "ACTIVE" as const },
+  };
 
   const [items, total, grouped] = await Promise.all([
     prisma.review.findMany({
@@ -236,6 +240,7 @@ export async function listAdminReviews(input: {
   limit: number;
 }) {
   const where = {
+    user: { accountStatus: "ACTIVE" as const },
     ...(input.status ? { status: input.status } : {}),
     ...(input.rating ? { rating: input.rating } : {}),
   };

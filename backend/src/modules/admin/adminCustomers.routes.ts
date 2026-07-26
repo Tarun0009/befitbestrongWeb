@@ -19,6 +19,7 @@ router.get("/users", async (req, res, next) => {
   try {
     const query = listQuery.parse(req.query);
     const where: Prisma.UserWhereInput = {
+      accountStatus: "ACTIVE",
       ...(query.role ? { role: query.role as Role } : {}),
       ...(query.q
         ? {
@@ -70,8 +71,8 @@ router.get("/users", async (req, res, next) => {
 router.get("/users/:id", async (req, res, next) => {
   try {
     const { id } = idParam.parse(req.params);
-    const user = await prisma.user.findUnique({
-      where: { id },
+    const user = await prisma.user.findFirst({
+      where: { id, accountStatus: "ACTIVE" },
       select: {
         id: true,
         email: true,

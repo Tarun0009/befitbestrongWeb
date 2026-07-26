@@ -23,6 +23,8 @@ const templates: EmailTemplate[] = [
   "ADMIN_ORDER_ALERT",
   "SUBSCRIPTION_RENEWAL",
   "BACK_IN_STOCK",
+  "ACCOUNT_SECURITY",
+  "EMAIL_CHANGE_CONFIRMATION",
 ];
 
 export default function AdminEmailDeliveryPage() {

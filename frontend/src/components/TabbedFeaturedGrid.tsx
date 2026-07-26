@@ -62,8 +62,8 @@ export function TabbedFeaturedGrid({
         </p>
       ) : (
         <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {visible.map((product, index) => (
-            <ProductCard key={product.id} product={product} priority={index < 4} />
+          {visible.map((product) => (
+            <ProductCard key={product.id} product={product} />
           ))}
         </div>
       )}

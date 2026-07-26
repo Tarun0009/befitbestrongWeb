@@ -1,6 +1,7 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import { publicEnv } from "@/config/publicEnv";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { attachDeviceSessionHeader } from "@/features/auth/deviceSession";
 
 export type EmailOutboxStatus =
   | "PENDING"
@@ -12,7 +13,9 @@ export type EmailTemplate =
   | "ORDER_STATUS"
   | "ADMIN_ORDER_ALERT"
   | "SUBSCRIPTION_RENEWAL"
-  | "BACK_IN_STOCK";
+  | "BACK_IN_STOCK"
+  | "ACCOUNT_SECURITY"
+  | "EMAIL_CHANGE_CONFIRMATION";
 
 export interface EmailOutboxEvent {
   id: string;
@@ -61,6 +64,7 @@ const baseQuery = fetchBaseQuery({
   baseUrl: publicEnv.apiUrl,
   credentials: "include",
   prepareHeaders: async (headers) => {
+    attachDeviceSessionHeader(headers);
     const user = getFirebaseAuth().currentUser;
     if (user) headers.set("Authorization", "Bearer " + (await user.getIdToken()));
     return headers;

@@ -5,7 +5,10 @@ import { useGetSiteConfigQuery } from "@/lib/siteConfigApi";
 export function RewardsTicker() {
   const { data } = useGetSiteConfigQuery();
   const tiers = data?.rewardTiers ?? [];
-  if (tiers.length === 0) return null;
+
+  // Keep the storefront hierarchy focused: the editable announcement is the
+  // primary message, while rewards become the fallback when it is disabled.
+  if (data?.announcement.enabled || tiers.length === 0) return null;
 
   const items = [...tiers, ...tiers];
 

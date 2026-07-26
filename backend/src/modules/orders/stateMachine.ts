@@ -152,7 +152,11 @@ export async function transition(
       where: { id: orderId },
       select: { status: true },
     });
-    if (locked.status !== before.status) {
+    const convergedAfterWait = locked.status === to;
+    if (
+      locked.status !== before.status &&
+      !convergedAfterWait
+    ) {
       throw new HttpError(
         409,
         "order_status_changed",
@@ -187,10 +191,11 @@ export async function transition(
       await opts.transactionWork(tx);
     }
 
-    // Same-status fulfillment work commits without producing a duplicate
-    // order history entry or repeating status side effects.
-    if (sameStatus) {
-      return before;
+    // Same-target transitions may converge while waiting on the row lock.
+    // Commit explicit fulfillment work, but never repeat transition side
+    // effects or history for the already-reached state.
+    if (sameStatus || convergedAfterWait) {
+      return tx.order.findUniqueOrThrow({ where: { id: orderId } });
     }
 
     // 1. Stock side effects — release when we abandon (never shipped) or

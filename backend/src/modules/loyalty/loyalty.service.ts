@@ -650,19 +650,26 @@ export async function getAdminLoyalty() {
         create: { id: "main" },
       }),
       prisma.user.aggregate({
+        where: { accountStatus: "ACTIVE" },
         _sum: {
           pointsBalance: true,
           lifetimePointsEarned: true,
           lifetimePointsRedeemed: true,
         },
       }),
-      prisma.loyaltyEntry.count(),
+      prisma.loyaltyEntry.count({
+        where: { user: { accountStatus: "ACTIVE" } },
+      }),
       prisma.referral.groupBy({
         by: ["status"],
+        where: {
+          referrer: { accountStatus: "ACTIVE" },
+          referredUser: { accountStatus: "ACTIVE" },
+        },
         _count: { _all: true },
       }),
       prisma.user.findMany({
-        where: { role: "CUSTOMER" },
+        where: { role: "CUSTOMER", accountStatus: "ACTIVE" },
         orderBy: { pointsBalance: "desc" },
         take: 10,
         select: {
@@ -676,6 +683,7 @@ export async function getAdminLoyalty() {
       }),
       prisma.loyaltyEntry.findMany({
         orderBy: { createdAt: "desc" },
+        where: { user: { accountStatus: "ACTIVE" } },
         take: 20,
         select: {
           id: true,

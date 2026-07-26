@@ -80,7 +80,7 @@ test("guest can place and securely reopen a cash on delivery order", async ({
     });
 
     await expect(
-      page.getByText(`Delivery is available in ${fixture.city}`),
+      page.getByText(`Delivery is available across India · ${fixture.city}`),
     ).toBeVisible();
     await expect(page.getByText(/COD available/)).toBeVisible();
     await expect(page.getByLabel("City")).toHaveValue(fixture.city);

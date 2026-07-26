@@ -7,8 +7,13 @@ import {
 } from "../checkout/support/checkoutFixture";
 
 const backendUrl = process.env.E2E_BACKEND_URL ?? "http://localhost:4000";
+const razorpayStubUrl = process.env.E2E_RAZORPAY_URL ?? "http://127.0.0.1:4010";
 const razorpayKeyId =
   process.env.E2E_RAZORPAY_KEY_ID ?? "rzp_test_e2e_checkout";
+const razorpayKeySecret =
+  process.env.E2E_RAZORPAY_KEY_SECRET ?? "e2e-razorpay-key-secret";
+const razorpayStubAuthorization =
+  `Basic ${Buffer.from(`${razorpayKeyId}:${razorpayKeySecret}`).toString("base64")}`;
 const razorpayWebhookSecret =
   process.env.E2E_RAZORPAY_WEBHOOK_SECRET ??
   "e2e-razorpay-webhook-secret";
@@ -51,7 +56,7 @@ test("customer wishlist, rewards, and subscriptions work after authenticated pre
     await page.goto("/signup");
     await page.getByLabel("Name").fill("Account Features Customer");
     await page.getByLabel("Email").fill(fixture.email);
-    await page.getByLabel("Password").fill(password);
+    await page.getByLabel("Password", { exact: true }).fill(password);
     const sessionPromise = page.waitForResponse(
       (response) =>
         response.url() === `${backendUrl}/auth/session` &&
@@ -69,9 +74,13 @@ test("customer wishlist, rewards, and subscriptions work after authenticated pre
     await expect(
       page.getByRole("heading", { name: /Welcome back, Account\./ }),
     ).toBeVisible();
-    await page.waitForLoadState("networkidle");
+    // Let the signup route's client-side replacement commit before starting
+    // another navigation. This prevents a still-pending /account replacement
+    // from winning over the product route.
+    await page.reload({ waitUntil: "networkidle" });
+    await expect(page).toHaveURL(/\/account$/);
 
-    await page.goto(`/shop/${fixture.productSlug}`);
+    await page.goto(`/shop/${fixture.productSlug}`, { waitUntil: "networkidle" });
     await expect(page).toHaveURL(
       new RegExp(`/shop/${fixture.productSlug}$`),
     );
@@ -96,8 +105,10 @@ test("customer wishlist, rewards, and subscriptions work after authenticated pre
         .getByRole("main")
         .getByRole("link", { name: fixture.productName, exact: true }),
     ).toBeVisible();
-    const closeCartButton = page.getByRole("button", { name: "Close cart" });
-    if (await closeCartButton.isVisible()) await closeCartButton.click();
+    const cartDialog = page.getByRole("dialog", { name: "Your cart" });
+    if (await cartDialog.isVisible()) {
+      await cartDialog.getByRole("button", { name: "Close" }).click();
+    }
 
     await page.goto("/checkout");
     await expect(page.getByLabel("Email")).toHaveValue(fixture.email);
@@ -157,23 +168,57 @@ test("customer wishlist, rewards, and subscriptions work after authenticated pre
       .toBe(true);
 
     const providerPaymentId = `pay_e2e_${runId.replaceAll("-", "")}`;
+    const checkoutSignature = createHmac("sha256", razorpayKeySecret)
+      .update(`${checkout.razorpay.orderId}|${providerPaymentId}`)
+      .digest("hex");
+    const registeredPayment = await context.request.post(
+      `${razorpayStubUrl}/__e2e/payments`,
+      {
+        headers: { Authorization: razorpayStubAuthorization },
+        data: {
+          id: providerPaymentId,
+          order_id: checkout.razorpay.orderId,
+          amount: checkout.amount,
+          currency: checkout.currency,
+          status: "captured",
+        },
+      },
+    );
+    expect(registeredPayment.status()).toBe(201);
     await sendCapturedWebhook(
       context.request,
       runId,
       checkout,
       providerPaymentId,
     );
-    await page.evaluate(() => {
-      const state = (
-        window as typeof window & {
-          __e2eRazorpay?: {
-            options: { handler: (response: object) => void } | null;
-          };
-        }
-      ).__e2eRazorpay;
-      if (!state?.options) throw new Error("Razorpay checkout was not opened");
-      state.options.handler({});
-    });
+    await page.evaluate(
+      ({ providerOrderId, paymentId, paymentSignature }) => {
+        const state = (
+          window as typeof window & {
+            __e2eRazorpay?: {
+              options: {
+                handler: (response: {
+                  razorpay_order_id: string;
+                  razorpay_payment_id: string;
+                  razorpay_signature: string;
+                }) => void;
+              } | null;
+            };
+          }
+        ).__e2eRazorpay;
+        if (!state?.options) throw new Error("Razorpay checkout was not opened");
+        state.options.handler({
+          razorpay_order_id: providerOrderId,
+          razorpay_payment_id: paymentId,
+          razorpay_signature: paymentSignature,
+        });
+      },
+      {
+        providerOrderId: checkout.razorpay.orderId,
+        paymentId: providerPaymentId,
+        paymentSignature: checkoutSignature,
+      },
+    );
     await expect(page).toHaveURL(
       new RegExp(`/checkout/success\\?orderId=${checkout.orderId}$`),
     );

@@ -11,6 +11,13 @@ import {
 } from "@/lib/siteConfigApi";
 import { useAdminListProductsQuery } from "@/lib/catalogApi";
 
+import {
+  DEFAULT_HOMEPAGE_CONTENT,
+  type HomepageCategoryTile,
+  type HomepageContent,
+  type HomepageSpotlightBullet,
+  type HomepageValueProp,
+} from "@/features/homepage/homepageContent";
 const emptySlide = (): HeroSlide => ({
   eyebrow: "beFitBeStrong",
   headline: "Fuel, gear, and kit for serious training.",
@@ -37,6 +44,8 @@ export default function AdminHomepagePage() {
         ...data.config,
         heroSlides: data.config.heroSlides ?? [],
         rewardTiers: data.config.rewardTiers ?? [],
+        homepageContent:
+          data.config.homepageContent ?? DEFAULT_HOMEPAGE_CONTENT,
       });
     }
   }, [data]);
@@ -59,9 +68,10 @@ export default function AdminHomepagePage() {
       if (k === "id" || k === "createdAt" || k === "updatedAt") continue;
       const current = draft[k];
       const original = data.config[k];
-      const isEqual = Array.isArray(current)
-        ? JSON.stringify(current) === JSON.stringify(original ?? [])
-        : current === original;
+      const isEqual =
+        current !== null && typeof current === "object"
+          ? JSON.stringify(current) === JSON.stringify(original ?? {})
+          : current === original;
       if (!isEqual) {
         (patch as Record<string, unknown>)[k] = current;
       }
@@ -84,8 +94,8 @@ export default function AdminHomepagePage() {
       <header className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
         <h2 className="text-2xl font-semibold">Homepage & announcement</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Marketing-editable content for the storefront hero, rewards ticker,
-          featured products, and spotlight.
+          Control storefront banners, imagery, merchandising sections, support
+          content, rewards, and featured products without a code deployment.
         </p>
       </header>
 
@@ -243,6 +253,11 @@ export default function AdminHomepagePage() {
         />
       </Section>
 
+      <HomepageContentEditor
+        content={draft.homepageContent}
+        onChange={(content) => set("homepageContent", content)}
+      />
+
       <Section
         title="Featured products"
         description="Ordered list surfaced on the homepage. Leave empty to show newest products automatically."
@@ -326,6 +341,374 @@ export default function AdminHomepagePage() {
   );
 }
 
+function HomepageContentEditor({
+  content,
+  onChange,
+}: {
+  content: HomepageContent;
+  onChange: (content: HomepageContent) => void;
+}) {
+  function updateValueProp<K extends keyof HomepageValueProp>(
+    index: number,
+    key: K,
+    value: HomepageValueProp[K],
+  ) {
+    const items = content.valueProps.items.map((item, itemIndex) =>
+      itemIndex === index ? { ...item, [key]: value } : item,
+    );
+    onChange({
+      ...content,
+      valueProps: { ...content.valueProps, items },
+    });
+  }
+
+  function updateCategory<K extends keyof HomepageCategoryTile>(
+    index: number,
+    key: K,
+    value: HomepageCategoryTile[K],
+  ) {
+    const items = content.categories.items.map((item, itemIndex) =>
+      itemIndex === index ? { ...item, [key]: value } : item,
+    );
+    onChange({
+      ...content,
+      categories: { ...content.categories, items },
+    });
+  }
+
+  function updateSpotlightBullet<K extends keyof HomepageSpotlightBullet>(
+    index: number,
+    key: K,
+    value: HomepageSpotlightBullet[K],
+  ) {
+    onChange({
+      ...content,
+      spotlightBullets: content.spotlightBullets.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [key]: value } : item,
+      ),
+    });
+  }
+
+  return (
+    <>
+      <Section
+        title="Trust strip"
+        description="Short customer promises displayed directly below the hero."
+      >
+        <Toggle
+          label="Show trust strip"
+          checked={content.valueProps.enabled}
+          onChange={(enabled) =>
+            onChange({
+              ...content,
+              valueProps: { ...content.valueProps, enabled },
+            })
+          }
+        />
+        {content.valueProps.items.map((item, index) => (
+          <div
+            key={"value-" + index}
+            className="grid gap-3 rounded-xl border border-border p-4 sm:grid-cols-[120px_1fr_2fr_auto]"
+          >
+            <Field label="Badge">
+              <input
+                required
+                value={item.mark}
+                onChange={(event) =>
+                  updateValueProp(index, "mark", event.target.value)
+                }
+                maxLength={12}
+                className={inputCls}
+              />
+            </Field>
+            <Field label="Title">
+              <input
+                required
+                value={item.title}
+                onChange={(event) =>
+                  updateValueProp(index, "title", event.target.value)
+                }
+                maxLength={80}
+                className={inputCls}
+              />
+            </Field>
+            <Field label="Message">
+              <input
+                required
+                value={item.body}
+                onChange={(event) =>
+                  updateValueProp(index, "body", event.target.value)
+                }
+                maxLength={240}
+                className={inputCls}
+              />
+            </Field>
+            <EditorActions
+              index={index}
+              count={content.valueProps.items.length}
+              onMove={(direction) =>
+                onChange({
+                  ...content,
+                  valueProps: {
+                    ...content.valueProps,
+                    items: moveItem(content.valueProps.items, index, direction),
+                  },
+                })
+              }
+              onRemove={() =>
+                onChange({
+                  ...content,
+                  valueProps: {
+                    ...content.valueProps,
+                    items: content.valueProps.items.filter(
+                      (_, itemIndex) => itemIndex !== index,
+                    ),
+                  },
+                })
+              }
+            />
+          </div>
+        ))}
+        <AddButton
+          label="Add trust item"
+          disabled={content.valueProps.items.length >= 6}
+          onClick={() =>
+            onChange({
+              ...content,
+              valueProps: {
+                ...content.valueProps,
+                items: [
+                  ...content.valueProps.items,
+                  {
+                    mark: "NEW",
+                    title: "Customer promise",
+                    body: "Explain this promise in one clear sentence.",
+                  },
+                ],
+              },
+            })
+          }
+        />
+      </Section>
+
+      <Section
+        title="Category artwork"
+        description="Control the category section copy, tile order, images, and destinations."
+      >
+        <Toggle
+          label="Show category section"
+          checked={content.categories.enabled}
+          onChange={(enabled) =>
+            onChange({
+              ...content,
+              categories: { ...content.categories, enabled },
+            })
+          }
+        />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Eyebrow">
+            <input required value={content.categories.eyebrow} onChange={(event) => onChange({ ...content, categories: { ...content.categories, eyebrow: event.target.value } })} maxLength={60} className={inputCls} />
+          </Field>
+          <Field label="Section title">
+            <input required value={content.categories.title} onChange={(event) => onChange({ ...content, categories: { ...content.categories, title: event.target.value } })} maxLength={120} className={inputCls} />
+          </Field>
+          <Field label="CTA label">
+            <input required value={content.categories.ctaLabel} onChange={(event) => onChange({ ...content, categories: { ...content.categories, ctaLabel: event.target.value } })} maxLength={60} className={inputCls} />
+          </Field>
+          <Field label="CTA link">
+            <input required value={content.categories.ctaHref} onChange={(event) => onChange({ ...content, categories: { ...content.categories, ctaHref: event.target.value } })} className={inputCls} />
+          </Field>
+        </div>
+        {content.categories.items.map((item, index) => (
+          <div
+            key={"category-" + index}
+            className="rounded-xl border border-border p-4"
+          >
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="text-sm font-medium">Tile {index + 1}</p>
+              <EditorActions
+                index={index}
+                count={content.categories.items.length}
+                onMove={(direction) =>
+                  onChange({
+                    ...content,
+                    categories: {
+                      ...content.categories,
+                      items: moveItem(
+                        content.categories.items,
+                        index,
+                        direction,
+                      ),
+                    },
+                  })
+                }
+                onRemove={() =>
+                  onChange({
+                    ...content,
+                    categories: {
+                      ...content.categories,
+                      items: content.categories.items.filter(
+                        (_, itemIndex) => itemIndex !== index,
+                      ),
+                    },
+                  })
+                }
+              />
+            </div>
+            <div className="grid gap-4 lg:grid-cols-[180px_1fr]">
+              <div className="overflow-hidden rounded-lg border border-border bg-muted">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={item.imageUrl}
+                  alt=""
+                  className="aspect-[4/3] h-full w-full object-cover"
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Label">
+                  <input required value={item.tag} onChange={(event) => updateCategory(index, "tag", event.target.value)} maxLength={40} className={inputCls} />
+                </Field>
+                <Field label="Title">
+                  <input required value={item.title} onChange={(event) => updateCategory(index, "title", event.target.value)} maxLength={80} className={inputCls} />
+                </Field>
+                <Field label="Category slug">
+                  <input required value={item.slug} onChange={(event) => updateCategory(index, "slug", event.target.value.toLowerCase())} maxLength={80} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" className={inputCls} />
+                </Field>
+                <Field label="Image URL">
+                  <input type="url" required value={item.imageUrl} onChange={(event) => updateCategory(index, "imageUrl", event.target.value)} className={inputCls} />
+                </Field>
+                <div className="sm:col-span-2">
+                  <Field label="Description">
+                    <textarea required value={item.blurb} onChange={(event) => updateCategory(index, "blurb", event.target.value)} rows={2} maxLength={240} className={inputCls} />
+                  </Field>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+        <AddButton
+          label="Add category tile"
+          disabled={content.categories.items.length >= 8}
+          onClick={() =>
+            onChange({
+              ...content,
+              categories: {
+                ...content.categories,
+                items: [
+                  ...content.categories.items,
+                  {
+                    tag: "Collection",
+                    title: "New category",
+                    slug: "new-category",
+                    imageUrl:
+                      "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=900",
+                    blurb: "Describe what customers will find in this collection.",
+                  },
+                ],
+              },
+            })
+          }
+        />
+      </Section>
+
+      <Section
+        title="Featured products presentation"
+        description="The products are selected below; these fields control the section heading and CTA."
+      >
+        <Toggle label="Show featured products" checked={content.featured.enabled} onChange={(enabled) => onChange({ ...content, featured: { ...content.featured, enabled } })} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Eyebrow"><input required value={content.featured.eyebrow} onChange={(event) => onChange({ ...content, featured: { ...content.featured, eyebrow: event.target.value } })} maxLength={60} className={inputCls} /></Field>
+          <Field label="Title"><input required value={content.featured.title} onChange={(event) => onChange({ ...content, featured: { ...content.featured, title: event.target.value } })} maxLength={120} className={inputCls} /></Field>
+          <Field label="CTA label"><input required value={content.featured.ctaLabel} onChange={(event) => onChange({ ...content, featured: { ...content.featured, ctaLabel: event.target.value } })} maxLength={60} className={inputCls} /></Field>
+          <Field label="CTA link"><input required value={content.featured.ctaHref} onChange={(event) => onChange({ ...content, featured: { ...content.featured, ctaHref: event.target.value } })} className={inputCls} /></Field>
+        </div>
+      </Section>
+
+      <Section
+        title="Spotlight cards"
+        description="Supporting cards displayed beside the spotlight content."
+      >
+        {content.spotlightBullets.map((item, index) => (
+          <div key={"spotlight-" + index} className="grid gap-3 rounded-xl border border-border p-4 sm:grid-cols-[1fr_2fr_auto]">
+            <Field label="Title"><input required value={item.title} onChange={(event) => updateSpotlightBullet(index, "title", event.target.value)} maxLength={100} className={inputCls} /></Field>
+            <Field label="Message"><input required value={item.body} onChange={(event) => updateSpotlightBullet(index, "body", event.target.value)} maxLength={240} className={inputCls} /></Field>
+            <EditorActions index={index} count={content.spotlightBullets.length} onMove={(direction) => onChange({ ...content, spotlightBullets: moveItem(content.spotlightBullets, index, direction) })} onRemove={() => onChange({ ...content, spotlightBullets: content.spotlightBullets.filter((_, itemIndex) => itemIndex !== index) })} />
+          </div>
+        ))}
+        <AddButton label="Add spotlight card" disabled={content.spotlightBullets.length >= 6} onClick={() => onChange({ ...content, spotlightBullets: [...content.spotlightBullets, { title: "New benefit", body: "Explain the customer benefit clearly." }] })} />
+      </Section>
+
+      <Section
+        title="Recently viewed"
+        description="Customer-specific browsing history shown below featured products."
+      >
+        <Toggle label="Show recently viewed products" checked={content.recentlyViewedEnabled} onChange={(recentlyViewedEnabled) => onChange({ ...content, recentlyViewedEnabled })} />
+      </Section>
+
+      <Section
+        title="Customer support callout"
+        description="Final homepage support section and its action."
+      >
+        <Toggle label="Show support callout" checked={content.support.enabled} onChange={(enabled) => onChange({ ...content, support: { ...content.support, enabled } })} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Eyebrow"><input required value={content.support.eyebrow} onChange={(event) => onChange({ ...content, support: { ...content.support, eyebrow: event.target.value } })} maxLength={60} className={inputCls} /></Field>
+          <Field label="Title"><input required value={content.support.title} onChange={(event) => onChange({ ...content, support: { ...content.support, title: event.target.value } })} maxLength={120} className={inputCls} /></Field>
+        </div>
+        <Field label="Description"><textarea required value={content.support.body} onChange={(event) => onChange({ ...content, support: { ...content.support, body: event.target.value } })} rows={2} maxLength={400} className={inputCls} /></Field>
+        <Field label="Support card message"><input required value={content.support.cardBody} onChange={(event) => onChange({ ...content, support: { ...content.support, cardBody: event.target.value } })} maxLength={240} className={inputCls} /></Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="CTA label"><input required value={content.support.ctaLabel} onChange={(event) => onChange({ ...content, support: { ...content.support, ctaLabel: event.target.value } })} maxLength={60} className={inputCls} /></Field>
+          <Field label="CTA link"><input required value={content.support.ctaHref} onChange={(event) => onChange({ ...content, support: { ...content.support, ctaHref: event.target.value } })} className={inputCls} /></Field>
+        </div>
+      </Section>
+    </>
+  );
+}
+
+function moveItem<T>(items: T[], index: number, direction: -1 | 1) {
+  const target = index + direction;
+  if (target < 0 || target >= items.length) return items;
+  const next = [...items];
+  [next[index], next[target]] = [next[target] as T, next[index] as T];
+  return next;
+}
+
+function AddButton({
+  label,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" disabled={disabled} onClick={onClick} className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-40">
+      {label}
+    </button>
+  );
+}
+
+function EditorActions({
+  index,
+  count,
+  onMove,
+  onRemove,
+}: {
+  index: number;
+  count: number;
+  onMove: (direction: -1 | 1) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex items-end gap-1">
+      <button type="button" onClick={() => onMove(-1)} disabled={index === 0} className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40">Up</button>
+      <button type="button" onClick={() => onMove(1)} disabled={index === count - 1} className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40">Down</button>
+      <button type="button" onClick={onRemove} className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted">Remove</button>
+    </div>
+  );
+}
+
 function HeroSlidesEditor({
   slides,
   onChange,
@@ -352,14 +735,28 @@ function HeroSlidesEditor({
           <div key={index} className="rounded-lg border border-border p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <p className="text-sm font-medium">Slide {index + 1}</p>
-              <button
-                type="button"
-                onClick={() => onChange(slides.filter((_, i) => i !== index))}
-                className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted"
-              >
-                Remove
-              </button>
+              <EditorActions
+                index={index}
+                count={slides.length}
+                onMove={(direction) =>
+                  onChange(moveItem(slides, index, direction))
+                }
+                onRemove={() =>
+                  onChange(slides.filter((_, i) => i !== index))
+                }
+              />
             </div>
+            {slide.imageUrl && (
+              <div className="mb-4 overflow-hidden rounded-xl border border-border bg-muted">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={slide.imageUrl}
+                  alt=""
+                  loading="lazy"
+                  className="aspect-[16/6] w-full object-cover"
+                />
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Eyebrow">
                 <input value={slide.eyebrow} onChange={(e) => updateSlide(index, "eyebrow", e.target.value)} maxLength={60} className={inputCls} />

@@ -1,6 +1,7 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import { publicEnv } from "@/config/publicEnv";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { attachDeviceSessionHeader } from "@/features/auth/deviceSession";
 
 export type ServiceabilityResult =
   | { serviceable: false; pincode: string }
@@ -22,6 +23,7 @@ const baseQuery = fetchBaseQuery({
   baseUrl: publicEnv.apiUrl,
   credentials: "include",
   prepareHeaders: async (headers) => {
+    attachDeviceSessionHeader(headers);
     try {
       const user = getFirebaseAuth().currentUser;
       if (user) {

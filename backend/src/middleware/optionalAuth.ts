@@ -4,6 +4,10 @@ import { redis } from "../config/redis.js";
 import { prisma } from "../config/db.js";
 import { logger } from "../config/logger.js";
 import { REVOCATION_KEY, type Role } from "./auth.js";
+import {
+  DEVICE_SESSION_HEADER,
+  validateUserSession,
+} from "../modules/account/accountSession.service.js";
 
 const USER_CACHE_PREFIX = "auth:user:";
 const USER_CACHE_TTL = 60;
@@ -29,14 +33,20 @@ export async function optionalAuth(
 
   try {
     const admin = getFirebaseAdmin();
-    const decoded = await admin.auth().verifyIdToken(token, false);
+    const decoded = await admin.auth().verifyIdToken(token, true);
 
     const revoked = await redis.exists(REVOCATION_KEY(decoded.uid));
     if (revoked) return next();
 
     const cacheKey = `${USER_CACHE_PREFIX}${decoded.uid}`;
     const cached = await redis.get(cacheKey);
-    let user: { id: string; email: string; role: Role } | null = null;
+    let user: {
+      id: string;
+      email: string;
+      role: Role;
+      accountStatus: "ACTIVE" | "DELETION_PENDING";
+      sessionTrackingEnabled: boolean;
+    } | null = null;
     if (cached) {
       try {
         user = JSON.parse(cached);
@@ -47,19 +57,37 @@ export async function optionalAuth(
     if (!user) {
       const dbUser = await prisma.user.findUnique({
         where: { firebaseUid: decoded.uid },
-        select: { id: true, email: true, role: true },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          accountStatus: true,
+          sessionTrackingEnabled: true,
+        },
       });
-      if (!dbUser) return next();
-      user = { id: dbUser.id, email: dbUser.email, role: dbUser.role };
+      if (!dbUser || dbUser.accountStatus !== "ACTIVE") return next();
+      user = dbUser;
       await redis.set(cacheKey, JSON.stringify(user), "EX", USER_CACHE_TTL);
     }
+    if (user.accountStatus !== "ACTIVE") return next();
 
-    const claimRole = decoded.role as Role | undefined;
+    let sessionId: string | undefined;
+    if (user.sessionTrackingEnabled) {
+      const deviceToken = req.header(DEVICE_SESSION_HEADER)?.trim();
+      if (!deviceToken || deviceToken.length < 32 || deviceToken.length > 200) {
+        return next();
+      }
+      sessionId = await validateUserSession(user.id, deviceToken);
+    }
+
     req.auth = {
       uid: decoded.uid,
       userId: user.id,
       email: user.email,
-      role: claimRole ?? user.role,
+      role: user.role,
+      accountStatus: user.accountStatus,
+      authenticatedAt: decoded.auth_time,
+      sessionId,
     };
   } catch (err) {
     logger.debug({ err }, "optionalAuth: token invalid, treating as anonymous");

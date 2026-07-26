@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { onIdTokenChanged } from "firebase/auth";
+import { onIdTokenChanged, signOut } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { useAppDispatch } from "@/lib/hooks";
 import {
@@ -40,16 +40,20 @@ export function AuthBridge() {
       }
 
       let idToken = await fbUser.getIdToken();
+      let syncedUser: Awaited<ReturnType<typeof syncBackendUser>> | null = null;
 
-      if (syncedRef.current !== fbUser.uid) {
-        try {
-          await dispatch(
-            authApi.endpoints.createSession.initiate({ idToken }),
-          ).unwrap();
-          idToken = await fbUser.getIdToken(true);
-        } catch (err) {
-          console.error("[AuthBridge] /auth/session sync failed", err);
-        }
+      const firstSyncForUser = syncedRef.current !== fbUser.uid;
+      try {
+        syncedUser = await syncBackendUser(dispatch, idToken);
+        idToken = await fbUser.getIdToken(true);
+      } catch (err) {
+        console.error("[AuthBridge] /auth/session sync failed", err);
+        await signOut(auth);
+        dispatch(setUnauthenticated());
+        return;
+      }
+
+      if (firstSyncForUser && syncedUser?.accountStatus !== "DELETION_PENDING") {
         // Merge any guest cart into the user cart. Idempotent server-side;
         // safe even if there's no cookie or the guest cart was empty. When
         // the server reports actual merge activity, populate a toast so the
@@ -64,8 +68,8 @@ export function AuthBridge() {
         } catch (err) {
           console.warn("[AuthBridge] cart merge failed", err);
         }
-        syncedRef.current = fbUser.uid;
       }
+      syncedRef.current = fbUser.uid;
 
       const result = await fbUser.getIdTokenResult();
       const role =
@@ -75,9 +79,11 @@ export function AuthBridge() {
         setAuthenticated({
           user: {
             uid: fbUser.uid,
-            email: fbUser.email ?? "",
-            name: fbUser.displayName,
-            role,
+            email: syncedUser?.email ?? fbUser.email ?? "",
+            name: syncedUser?.name ?? fbUser.displayName,
+            role: syncedUser?.role ?? role,
+            accountStatus: syncedUser?.accountStatus ?? "ACTIVE",
+            deletionScheduledFor: syncedUser?.deletionScheduledFor ?? null,
           },
           idToken,
         }),
@@ -88,4 +94,14 @@ export function AuthBridge() {
   }, [dispatch]);
 
   return null;
+}
+
+async function syncBackendUser(
+  dispatch: ReturnType<typeof useAppDispatch>,
+  idToken: string,
+) {
+  const response = await dispatch(
+    authApi.endpoints.createSession.initiate({ idToken }),
+  ).unwrap();
+  return response.user;
 }

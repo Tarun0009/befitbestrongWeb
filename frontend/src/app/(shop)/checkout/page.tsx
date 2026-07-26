@@ -71,7 +71,9 @@ function randomCheckoutKey(): string {
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const user = useAppSelector((state) => state.auth.user);
+  const { user, status: authStatus } = useAppSelector((state) => state.auth);
+  const authReady =
+    authStatus === "authenticated" || authStatus === "unauthenticated";
   const { data: cart, isLoading: cartLoading } = useGetCartQuery();
   const { data: config } = useGetCheckoutConfigQuery();
   // Default to enabled while the config request is loading or when talking to
@@ -131,6 +133,7 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     if (
+      authReady &&
       !cartLoading &&
       cart &&
       cart.items.length === 0 &&
@@ -138,7 +141,7 @@ export default function CheckoutPage() {
     ) {
       router.replace("/cart");
     }
-  }, [cart, cartLoading, router]);
+  }, [authReady, cart, cartLoading, router]);
 
   function handleDetailsSubmit(event: FormEvent) {
     event.preventDefault();
@@ -283,7 +286,7 @@ export default function CheckoutPage() {
     }
   }
 
-  if (cartLoading || !cart) {
+  if (!authReady || cartLoading || !cart) {
     return (
       <main className="mx-auto max-w-5xl px-6 py-16">
         <div className="h-48 animate-pulse rounded-xl bg-muted" />
