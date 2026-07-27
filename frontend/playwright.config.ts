@@ -4,6 +4,7 @@ const frontendUrl = process.env.E2E_FRONTEND_URL ?? "http://localhost:3005";
 const backendUrl = process.env.E2E_BACKEND_URL ?? "http://localhost:4000";
 const firebaseProjectId =
   process.env.E2E_FIREBASE_PROJECT_ID ?? "demo-befitbestrong-e2e";
+const firebaseApiKey = process.env.E2E_FIREBASE_API_KEY ?? "e2e-api-key";
 const firebaseAuthEmulatorUrl =
   process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_URL ?? "http://127.0.0.1:9099";
 const razorpayStubUrl = process.env.E2E_RAZORPAY_URL ?? "http://127.0.0.1:4010";
@@ -12,6 +13,10 @@ const razorpayKeySecret =
   process.env.E2E_RAZORPAY_KEY_SECRET ?? "e2e-razorpay-key-secret";
 const razorpayWebhookSecret =
   process.env.E2E_RAZORPAY_WEBHOOK_SECRET ?? "e2e-razorpay-webhook-secret";
+const e2eRedisUrl =
+  process.env.E2E_REDIS_URL ??
+  process.env.REDIS_URL ??
+  "redis://127.0.0.1:6381/15";
 const reuseExistingServer = process.env.E2E_REUSE_EXISTING_SERVERS === "1";
 
 export default defineConfig({
@@ -43,11 +48,17 @@ export default defineConfig({
   },
   projects: [
     {
+      name: "service-api",
+      testMatch: /account-lifecycle\.security\.spec\.ts/,
+    },
+    {
       name: "desktop-chromium",
+      testIgnore: /account-lifecycle\.security\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] },
     },
     {
       name: "mobile-chromium",
+      testIgnore: /account-lifecycle\.security\.spec\.ts/,
       use: { ...devices["Pixel 7"] },
     },
   ],
@@ -95,6 +106,16 @@ export default defineConfig({
         ...process.env,
         NODE_ENV: "development",
         APP_ENV: "local",
+        ACCOUNT_DELETION_GRACE_DAYS: "0",
+        REDIS_URL: e2eRedisUrl,
+        RATE_LIMIT_AUTH_IP_MAX: "10000",
+        RATE_LIMIT_AUTH_ACCOUNT_MAX: "10000",
+        RATE_LIMIT_PUBLIC_IP_MAX: "10000",
+        RATE_LIMIT_PUBLIC_ACCOUNT_MAX: "10000",
+        RATE_LIMIT_AUTHENTICATED_IP_MAX: "10000",
+        RATE_LIMIT_AUTHENTICATED_ACCOUNT_MAX: "10000",
+        RATE_LIMIT_SERVICEABILITY_IP_MAX: "10000",
+        RATE_LIMIT_SERVICEABILITY_ACCOUNT_MAX: "10000",
         FIREBASE_PROJECT_ID: firebaseProjectId,
         FIREBASE_AUTH_EMULATOR_HOST: new URL(firebaseAuthEmulatorUrl).host,
         GCLOUD_PROJECT: firebaseProjectId,
@@ -108,12 +129,27 @@ export default defineConfig({
     },
     {
       name: "frontend",
-      command: "node node_modules/next/dist/bin/next start -p 3005",
+      command: process.env.CI
+        ? "node node_modules/next/dist/bin/next start -p 3005"
+        : "node scripts/e2e/startFrontend.mjs",
       cwd: ".",
       url: `${frontendUrl}/health`,
-      timeout: 60_000,
+      timeout: process.env.CI ? 60_000 : 180_000,
       reuseExistingServer,
-      env: { ...process.env, NODE_ENV: "production" },
+      env: {
+        ...process.env,
+        NODE_ENV: "production",
+        NEXT_PUBLIC_APP_ENV: "local",
+        NEXT_PUBLIC_API_URL: backendUrl,
+        NEXT_PUBLIC_SITE_URL: frontendUrl,
+        NEXT_PUBLIC_FIREBASE_API_KEY: firebaseApiKey,
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: `${firebaseProjectId}.firebaseapp.com`,
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: firebaseProjectId,
+        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: `${firebaseProjectId}.appspot.com`,
+        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "1234567890",
+        NEXT_PUBLIC_FIREBASE_APP_ID: "1:1234567890:web:e2e",
+        NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_URL: firebaseAuthEmulatorUrl,
+      },
       stdout: "pipe",
       stderr: "pipe",
     },

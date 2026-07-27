@@ -7,6 +7,8 @@ export interface AuthUser {
   email: string;
   name?: string | null;
   role: UserRole;
+  accountStatus: "ACTIVE" | "DELETION_PENDING";
+  deletionScheduledFor?: string | null;
 }
 
 export interface AuthState {

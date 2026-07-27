@@ -7,8 +7,13 @@ import {
 } from "./support/checkoutFixture";
 
 const backendUrl = process.env.E2E_BACKEND_URL ?? "http://localhost:4000";
+const razorpayStubUrl = process.env.E2E_RAZORPAY_URL ?? "http://127.0.0.1:4010";
 const razorpayKeyId =
   process.env.E2E_RAZORPAY_KEY_ID ?? "rzp_test_e2e_checkout";
+const razorpayKeySecret =
+  process.env.E2E_RAZORPAY_KEY_SECRET ?? "e2e-razorpay-key-secret";
+const razorpayStubAuthorization =
+  `Basic ${Buffer.from(`${razorpayKeyId}:${razorpayKeySecret}`).toString("base64")}`;
 const razorpayWebhookSecret =
   process.env.E2E_RAZORPAY_WEBHOOK_SECRET ??
   "e2e-razorpay-webhook-secret";
@@ -64,15 +69,16 @@ test("guest prepaid checkout reaches Razorpay and completes from a signed webhoo
     await pinInput.fill(fixture.pincode);
     await expect(pinInput).toHaveValue(fixture.pincode);
 
+    const serviceabilityPincode = fixture.pincode;
     const serviceabilityResponsePromise = page.waitForResponse(
       (response) =>
-        response.url() === `${backendUrl}/serviceability/${fixture.pincode}` &&
+        response.url() === `${backendUrl}/serviceability/${serviceabilityPincode}` &&
         response.request().method() === "GET",
     );
     await page.getByRole("button", { name: "Check" }).click();
     expect((await serviceabilityResponsePromise).status()).toBe(200);
     await expect(
-      page.getByText(`Delivery is available in ${fixture.city}`),
+      page.getByText(`Delivery is available across India · ${fixture.city}`),
     ).toBeVisible();
 
     await page.getByRole("button", { name: "Continue to review" }).click();
@@ -176,6 +182,23 @@ test("guest prepaid checkout reaches Razorpay and completes from a signed webhoo
     });
 
     const providerPaymentId = `pay_e2e_${runId.replaceAll("-", "")}`;
+    const checkoutSignature = createHmac("sha256", razorpayKeySecret)
+      .update(`${checkout.razorpay.orderId}|${providerPaymentId}`)
+      .digest("hex");
+    const registeredPayment = await context.request.post(
+      `${razorpayStubUrl}/__e2e/payments`,
+      {
+        headers: { Authorization: razorpayStubAuthorization },
+        data: {
+          id: providerPaymentId,
+          order_id: checkout.razorpay.orderId,
+          amount: checkout.amount,
+          currency: checkout.currency,
+          status: "captured",
+        },
+      },
+    );
+    expect(registeredPayment.status()).toBe(201);
     const rawWebhook = JSON.stringify({
       id: `event_e2e_${runId.replaceAll("-", "")}`,
       entity: "event",
@@ -249,17 +272,34 @@ test("guest prepaid checkout reaches Razorpay and completes from a signed webhoo
     expect(replayResponse.status()).toBe(200);
     await expect(replayResponse.json()).resolves.toEqual({ deduped: true });
 
-    await page.evaluate(() => {
-      const state = (
-        window as typeof window & {
-          __e2eRazorpay?: {
-            options: { handler: (response: object) => void } | null;
-          };
-        }
-      ).__e2eRazorpay;
-      if (!state?.options) throw new Error("Razorpay checkout was not opened");
-      state.options.handler({});
-    });
+    await page.evaluate(
+      ({ providerOrderId, paymentId, paymentSignature }) => {
+        const state = (
+          window as typeof window & {
+            __e2eRazorpay?: {
+              options: {
+                handler: (response: {
+                  razorpay_order_id: string;
+                  razorpay_payment_id: string;
+                  razorpay_signature: string;
+                }) => void;
+              } | null;
+            };
+          }
+        ).__e2eRazorpay;
+        if (!state?.options) throw new Error("Razorpay checkout was not opened");
+        state.options.handler({
+          razorpay_order_id: providerOrderId,
+          razorpay_payment_id: paymentId,
+          razorpay_signature: paymentSignature,
+        });
+      },
+      {
+        providerOrderId: checkout.razorpay.orderId,
+        paymentId: providerPaymentId,
+        paymentSignature: checkoutSignature,
+      },
+    );
     await expect(page).toHaveURL(
       new RegExp(`/checkout/success\\?orderId=${checkout.orderId}$`),
     );

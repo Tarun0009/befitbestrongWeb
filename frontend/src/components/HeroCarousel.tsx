@@ -7,7 +7,6 @@ import type { HeroSlide, PublicSiteConfig } from "@/lib/siteConfigApi";
 interface HeroCarouselProps {
   config: PublicSiteConfig | undefined;
   fallbackImage?: string | null;
-  loading?: boolean;
 }
 
 const DEFAULT_HERO_IMAGE =
@@ -32,7 +31,6 @@ function legacyHero(config: PublicSiteConfig | undefined): HeroSlide {
 export function HeroCarousel({
   config,
   fallbackImage,
-  loading,
 }: HeroCarouselProps) {
   const slides = useMemo(() => {
     const configured =
@@ -74,18 +72,6 @@ export function HeroCarousel({
       return;
     }
     setImageSrc(null);
-  }
-
-  if (loading) {
-    return (
-      <section className="border-b border-border bg-muted" aria-label="Featured products loading">
-        <div className="mx-auto min-h-[68vh] max-w-6xl px-6 py-16">
-          <div className="h-4 w-40 animate-pulse rounded bg-background" />
-          <div className="mt-5 h-20 max-w-2xl animate-pulse rounded bg-background" />
-          <div className="mt-4 h-5 max-w-xl animate-pulse rounded bg-background" />
-        </div>
-      </section>
-    );
   }
 
   return (

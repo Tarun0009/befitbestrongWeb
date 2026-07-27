@@ -9,6 +9,10 @@ import { rateLimit } from "../../middleware/rateLimit.js";
 import { rateLimitPolicies } from "../../config/rateLimitConfig.js";
 
 const router = Router();
+const PUBLIC_LIST_CACHE_CONTROL =
+  "public, max-age=60, s-maxage=600, stale-while-revalidate=300";
+const PUBLIC_DETAIL_CACHE_CONTROL =
+  "public, max-age=0, s-maxage=60, stale-while-revalidate=60";
 router.use(rateLimit({ keyPrefix: "products", ...rateLimitPolicies.public }));
 
 const listQuery = z.object({
@@ -30,6 +34,7 @@ router.get("/", async (req, res, next) => {
       limit: q.limit,
     });
     res.setHeader("X-Cache", result.cached ? "HIT" : "MISS");
+    res.setHeader("Cache-Control", PUBLIC_LIST_CACHE_CONTROL);
     res.json(result.data);
   } catch (err) {
     next(err);
@@ -47,6 +52,7 @@ router.get("/:slug", async (req, res, next) => {
       .parse(req.params.slug);
     const result = await getProductBySlug(slug);
     res.setHeader("X-Cache", result.cached ? "HIT" : "MISS");
+    res.setHeader("Cache-Control", PUBLIC_DETAIL_CACHE_CONTROL);
     res.json(result.data);
   } catch (err) {
     next(err);
@@ -67,6 +73,7 @@ export const categoriesRouter = (() => {
     try {
       const result = await listCategories();
       res.setHeader("X-Cache", result.cached ? "HIT" : "MISS");
+      res.setHeader("Cache-Control", PUBLIC_LIST_CACHE_CONTROL);
       res.json({ items: result.data });
     } catch (err) {
       next(err);

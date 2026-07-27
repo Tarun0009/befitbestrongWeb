@@ -5,9 +5,12 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   // Standalone output produces a slim `.next/standalone` directory that the
-  // Dockerfile copies into the runtime image. Cuts container size significantly.
+  // Dockerfile copies into the runtime image. Native Windows builds skip it
+  // because Next's trace packager creates symlinks that require Developer Mode.
   output:
-    process.env.NEXT_DISABLE_STANDALONE === "1" ? undefined : "standalone",
+    process.platform === "win32" || process.env.NEXT_DISABLE_STANDALONE === "1"
+      ? undefined
+      : "standalone",
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "res.cloudinary.com" },

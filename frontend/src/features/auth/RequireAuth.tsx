@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAppSelector } from "@/lib/hooks";
 import type { UserRole } from "./authSlice";
 
@@ -14,14 +14,21 @@ export function RequireAuth({
 }) {
   const { user, status } = useAppSelector((s) => s.auth);
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (status === "unauthenticated") {
-      router.replace("/login");
+      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
     } else if (status === "authenticated" && role && user?.role !== role) {
       router.replace("/account");
+    } else if (
+      status === "authenticated" &&
+      user?.accountStatus === "DELETION_PENDING" &&
+      pathname !== "/account/settings"
+    ) {
+      router.replace("/account/settings");
     }
-  }, [status, user, role, router]);
+  }, [status, user, role, router, pathname]);
 
   if (status !== "authenticated" || !user) {
     return (

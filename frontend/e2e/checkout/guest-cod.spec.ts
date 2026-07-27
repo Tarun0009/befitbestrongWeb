@@ -62,9 +62,10 @@ test("guest can place and securely reopen a cash on delivery order", async ({
     await expect(addressInput).toHaveValue("Sector 18 test address");
     await expect(pinInput).toHaveValue(fixture.pincode);
 
+    const serviceabilityPincode = fixture.pincode;
     const serviceabilityResponsePromise = page.waitForResponse(
       (response) =>
-        response.url() === `${backendUrl}/serviceability/${fixture.pincode}` &&
+        response.url() === `${backendUrl}/serviceability/${serviceabilityPincode}` &&
         response.request().method() === "GET",
     );
     const checkButton = page.getByRole("button", { name: "Check" });
@@ -80,7 +81,7 @@ test("guest can place and securely reopen a cash on delivery order", async ({
     });
 
     await expect(
-      page.getByText(`Delivery is available in ${fixture.city}`),
+      page.getByText(`Delivery is available across India · ${fixture.city}`),
     ).toBeVisible();
     await expect(page.getByText(/COD available/)).toBeVisible();
     await expect(page.getByLabel("City")).toHaveValue(fixture.city);

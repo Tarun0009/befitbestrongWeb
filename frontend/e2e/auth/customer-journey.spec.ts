@@ -41,7 +41,7 @@ test("customer signup merges the guest cart and supports checkout and password r
     await page.goto("/signup");
     await page.getByLabel("Name").fill("Phase One Customer");
     await page.getByLabel("Email").fill(fixture.email);
-    await page.getByLabel("Password").fill(originalPassword);
+    await page.getByLabel("Password", { exact: true }).fill(originalPassword);
 
     const sessionResponsePromise = page.waitForResponse(
       (response) =>
@@ -62,10 +62,15 @@ test("customer signup merges the guest cart and supports checkout and password r
     expect(sessionResponse.status()).toBe(200);
     expect(mergeResponse.status()).toBe(200);
     await expect(mergeResponse.json()).resolves.toMatchObject({
-      merged: 1,
       cart: {
         count: 1,
         items: [{ variantId: fixture.variantId, quantity: 1 }],
+      },
+      summary: {
+        addedLines: 1,
+        bumpedLines: 0,
+        cappedLines: 0,
+        droppedLines: 0,
       },
     });
 
@@ -100,7 +105,7 @@ test("customer signup merges the guest cart and supports checkout and password r
     await page.getByRole("button", { name: "Check" }).click();
     expect((await serviceabilityResponsePromise).status()).toBe(200);
     await expect(
-      page.getByText(`Delivery is available in ${fixture.city}`),
+      page.getByText(`Delivery is available across India · ${fixture.city}`),
     ).toBeVisible();
 
     await page.getByRole("button", { name: "Continue to review" }).click();
@@ -195,7 +200,7 @@ test("customer signup merges the guest cart and supports checkout and password r
 
     await page.goto("/login");
     await page.getByLabel("Email").fill(fixture.email);
-    await page.getByLabel("Password").fill(recoveredPassword);
+    await page.getByLabel("Password", { exact: true }).fill(recoveredPassword);
     const reloginSessionPromise = page.waitForResponse(
       (response) =>
         response.url() === `${backendUrl}/auth/session` &&

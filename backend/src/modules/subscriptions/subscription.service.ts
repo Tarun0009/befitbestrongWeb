@@ -313,7 +313,11 @@ export async function controlSubscription(
 
 export async function processDueSubscriptions(now = new Date()) {
   const due = await prisma.userSubscription.findMany({
-    where: { status: "ACTIVE", nextOrderAt: { lte: now } },
+    where: {
+      status: "ACTIVE",
+      nextOrderAt: { lte: now },
+      user: { accountStatus: "ACTIVE" },
+    },
     include: { plan: { include: planInclude } },
     take: 100,
   });

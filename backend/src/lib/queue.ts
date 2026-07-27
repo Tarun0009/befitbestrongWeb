@@ -146,3 +146,17 @@ export const emailOutboxQueue = new Queue("email-outbox", {
 emailOutboxQueue.on("error", (err) =>
   logger.error({ err }, "email-outbox queue error"),
 );
+
+export const accountDeletionQueue = new Queue("account-deletion", {
+  connection,
+  defaultJobOptions: {
+    attempts: 5,
+    backoff: { type: "exponential", delay: 5000 },
+    removeOnComplete: { count: 100 },
+    removeOnFail: { count: 100 },
+  },
+});
+
+accountDeletionQueue.on("error", (err) =>
+  logger.error({ err }, "account-deletion queue error"),
+);

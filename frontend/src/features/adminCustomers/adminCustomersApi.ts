@@ -1,6 +1,7 @@
 import { createApi, fetchBaseQuery, type BaseQueryFn, type FetchArgs, type FetchBaseQueryError } from "@reduxjs/toolkit/query/react";
 import { publicEnv } from "@/config/publicEnv";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { attachDeviceSessionHeader } from "@/features/auth/deviceSession";
 
 export type CustomerRole = "CUSTOMER" | "ADMIN";
 
@@ -26,6 +27,7 @@ const rawBaseQuery = fetchBaseQuery({
   baseUrl: publicEnv.apiUrl,
   credentials: "include",
   prepareHeaders: async (headers) => {
+    attachDeviceSessionHeader(headers);
     try {
       const user = getFirebaseAuth().currentUser;
       if (user) headers.set("Authorization", `Bearer ${await user.getIdToken()}`);

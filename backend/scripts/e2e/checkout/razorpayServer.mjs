@@ -7,6 +7,7 @@ const keySecret =
   process.env.E2E_RAZORPAY_KEY_SECRET ?? "e2e-razorpay-key-secret";
 const expectedAuthorization = `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}`;
 const ordersByReceipt = new Map();
+const paymentsById = new Map();
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host}`);
@@ -43,6 +44,35 @@ const server = createServer(async (request, response) => {
     const receipt = url.searchParams.get("receipt") ?? "";
     const order = ordersByReceipt.get(receipt);
     return send(response, 200, { items: order ? [order] : [], count: order ? 1 : 0 });
+  }
+  if (request.method === "POST" && url.pathname === "/__e2e/payments") {
+    const body = await readJson(request);
+    if (
+      !body ||
+      typeof body.id !== "string" ||
+      typeof body.order_id !== "string" ||
+      !Number.isInteger(body.amount) ||
+      typeof body.currency !== "string"
+    ) {
+      return send(response, 400, { error: { code: "BAD_REQUEST_ERROR" } });
+    }
+    const payment = {
+      id: body.id,
+      order_id: body.order_id,
+      amount: body.amount,
+      currency: body.currency.toUpperCase(),
+      status: body.status ?? "captured",
+      created_at: Math.floor(Date.now() / 1000),
+    };
+    paymentsById.set(payment.id, payment);
+    return send(response, 201, payment);
+  }
+  if (request.method === "GET" && url.pathname.startsWith("/v1/payments/")) {
+    const paymentId = decodeURIComponent(url.pathname.slice("/v1/payments/".length));
+    const payment = paymentsById.get(paymentId);
+    return payment
+      ? send(response, 200, payment)
+      : send(response, 404, { error: { code: "NOT_FOUND" } });
   }
   return send(response, 404, { error: { code: "NOT_FOUND" } });
 });

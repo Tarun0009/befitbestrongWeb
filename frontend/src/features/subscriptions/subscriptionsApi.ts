@@ -7,12 +7,14 @@ import {
   type FetchBaseQueryError,
 } from "@reduxjs/toolkit/query/react";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { attachDeviceSessionHeader } from "@/features/auth/deviceSession";
 
 const API_URL = publicEnv.apiUrl;
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: API_URL,
   credentials: "include",
   prepareHeaders: async (headers) => {
+    attachDeviceSessionHeader(headers);
     try {
       const user = getFirebaseAuth().currentUser;
       if (user) headers.set("Authorization", "Bearer " + (await user.getIdToken()));

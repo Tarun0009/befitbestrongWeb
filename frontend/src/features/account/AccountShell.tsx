@@ -16,6 +16,7 @@ import { signOut } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { useLogoutMutation } from "@/lib/authApi";
 import { cartApi } from "@/lib/cartApi";
+import { clearDeviceSessionToken } from "@/features/auth/deviceSession";
 import { wishlistApi } from "@/features/wishlist/wishlistApi";
 import { useAppDispatch } from "@/lib/hooks";
 import { useAppSelector } from "@/lib/hooks";
@@ -55,6 +56,7 @@ export function AccountShell({ children }: { children: React.ReactNode }) {
       // Firebase may be unavailable in a local guest-order view.
     }
     dispatch(cartApi.util.invalidateTags(["Cart"]));
+    clearDeviceSessionToken();
     dispatch(wishlistApi.util.resetApiState());
     router.push("/");
   }
