@@ -15,7 +15,10 @@ import { setMergeNotice } from "@/features/cart/cartSlice";
 
 export function AuthBridge() {
   const dispatch = useAppDispatch();
-  const syncedRef = useRef<string | null>(null);
+  const syncedRef = useRef<{
+    uid: string;
+    user: Awaited<ReturnType<typeof syncBackendUser>>;
+  } | null>(null);
 
   useEffect(() => {
     let auth;
@@ -40,17 +43,31 @@ export function AuthBridge() {
       }
 
       let idToken = await fbUser.getIdToken();
-      let syncedUser: Awaited<ReturnType<typeof syncBackendUser>> | null = null;
+      const firstSyncForUser = syncedRef.current?.uid !== fbUser.uid;
+      let syncedUser =
+        syncedRef.current?.uid === fbUser.uid
+          ? syncedRef.current.user
+          : null;
 
-      const firstSyncForUser = syncedRef.current !== fbUser.uid;
-      try {
-        syncedUser = await syncBackendUser(dispatch, idToken);
-        idToken = await fbUser.getIdToken(true);
-      } catch (err) {
-        console.error("[AuthBridge] /auth/session sync failed", err);
-        await signOut(auth);
-        dispatch(setUnauthenticated());
-        return;
+      if (!syncedUser) {
+        try {
+          syncedUser = await syncBackendUser(dispatch, idToken);
+          // Cache the completed session before forcing a token refresh.
+          // Firebase emits another token event for a forced refresh; without
+          // this guard the callback can create a session-sync/rate-limit loop.
+          syncedRef.current = { uid: fbUser.uid, user: syncedUser };
+
+          const currentClaims = await fbUser.getIdTokenResult();
+          if (currentClaims.claims.role !== syncedUser.role) {
+            idToken = await fbUser.getIdToken(true);
+          }
+        } catch (err) {
+          console.error("[AuthBridge] /auth/session sync failed", err);
+          syncedRef.current = null;
+          await signOut(auth);
+          dispatch(setUnauthenticated());
+          return;
+        }
       }
 
       if (firstSyncForUser && syncedUser?.accountStatus !== "DELETION_PENDING") {
@@ -69,8 +86,6 @@ export function AuthBridge() {
           console.warn("[AuthBridge] cart merge failed", err);
         }
       }
-      syncedRef.current = fbUser.uid;
-
       const result = await fbUser.getIdTokenResult();
       const role =
         (result.claims.role as "CUSTOMER" | "ADMIN" | undefined) ?? "CUSTOMER";

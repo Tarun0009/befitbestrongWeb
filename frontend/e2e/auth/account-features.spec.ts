@@ -27,6 +27,16 @@ test("customer wishlist, rewards, and subscriptions work after authenticated pre
   const password = "Phase1-account-features";
   let fixture: CheckoutFixture | undefined;
   let cartSid: string | undefined;
+  let sessionRequestCount = 0;
+
+  page.on("request", (request) => {
+    if (
+      request.url() === `${backendUrl}/auth/session` &&
+      request.method() === "POST"
+    ) {
+      sessionRequestCount += 1;
+    }
+  });
 
   await page.route("https://checkout.razorpay.com/v1/checkout.js", (route) =>
     route.fulfill({
@@ -74,6 +84,8 @@ test("customer wishlist, rewards, and subscriptions work after authenticated pre
     await expect(
       page.getByRole("heading", { name: /Welcome back, Account\./ }),
     ).toBeVisible();
+    await page.waitForTimeout(750);
+    expect(sessionRequestCount).toBe(1);
     // Let the signup route's client-side replacement commit before starting
     // another navigation. This prevents a still-pending /account replacement
     // from winning over the product route.
@@ -249,11 +261,26 @@ test("customer wishlist, rewards, and subscriptions work after authenticated pre
       page.getByRole("heading", { name: "900 points" }),
     ).toBeVisible();
 
+    const orderDetailPromise = page.waitForResponse(
+      (response) =>
+        response.url() === `${backendUrl}/orders/${checkout.orderId}` &&
+        response.request().method() === "GET",
+    );
+    const subscriptionPlansPromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        `${url.origin}${url.pathname}` === `${backendUrl}/subscription-plans` &&
+        url.searchParams.get("variantId") === fixture!.variantId &&
+        response.request().method() === "GET"
+      );
+    });
     await page.goto(`/account/orders/${checkout.orderId}`);
+    expect((await orderDetailPromise).status()).toBe(200);
+    expect((await subscriptionPlansPromise).status()).toBe(200);
     const enrollButton = page.getByRole("button", {
       name: "Subscribe & save 10%",
     });
-    await expect(enrollButton).toBeVisible();
+    await expect(enrollButton).toBeVisible({ timeout: 15_000 });
     await enrollButton.click();
     const enrollmentPromise = page.waitForResponse(
       (response) =>

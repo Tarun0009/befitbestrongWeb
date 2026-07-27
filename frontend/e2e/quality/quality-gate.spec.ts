@@ -79,7 +79,9 @@ test("unauthenticated admin access is redirected and the API stays protected", a
   });
 
   await page.goto("/admin/email-delivery");
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(
+    /\/login\?next=%2Fadmin%2Femail-delivery$/,
+  );
   await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   await expect(page.getByLabel("Email")).toBeVisible();
   await expect(page.getByLabel("Password", { exact: true })).toBeVisible();

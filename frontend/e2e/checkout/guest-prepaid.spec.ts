@@ -69,9 +69,10 @@ test("guest prepaid checkout reaches Razorpay and completes from a signed webhoo
     await pinInput.fill(fixture.pincode);
     await expect(pinInput).toHaveValue(fixture.pincode);
 
+    const serviceabilityPincode = fixture.pincode;
     const serviceabilityResponsePromise = page.waitForResponse(
       (response) =>
-        response.url() === `${backendUrl}/serviceability/${fixture.pincode}` &&
+        response.url() === `${backendUrl}/serviceability/${serviceabilityPincode}` &&
         response.request().method() === "GET",
     );
     await page.getByRole("button", { name: "Check" }).click();

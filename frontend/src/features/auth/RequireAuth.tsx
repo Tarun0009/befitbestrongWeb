@@ -18,7 +18,7 @@ export function RequireAuth({
 
   useEffect(() => {
     if (status === "unauthenticated") {
-      router.replace("/login");
+      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
     } else if (status === "authenticated" && role && user?.role !== role) {
       router.replace("/account");
     } else if (

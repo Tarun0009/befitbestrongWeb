@@ -14,7 +14,9 @@ const razorpayKeySecret =
 const razorpayWebhookSecret =
   process.env.E2E_RAZORPAY_WEBHOOK_SECRET ?? "e2e-razorpay-webhook-secret";
 const e2eRedisUrl =
-  process.env.E2E_REDIS_URL ?? "redis://127.0.0.1:6381/15";
+  process.env.E2E_REDIS_URL ??
+  process.env.REDIS_URL ??
+  "redis://127.0.0.1:6381/15";
 const reuseExistingServer = process.env.E2E_REUSE_EXISTING_SERVERS === "1";
 
 export default defineConfig({
