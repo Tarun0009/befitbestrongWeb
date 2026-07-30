@@ -19,6 +19,7 @@ import adminSubscriptionsRoutes from "../subscriptions/adminSubscriptions.routes
 import adminNotificationRoutes from "../notifications/adminNotification.routes.js";
 import adminFulfillmentRoutes from "../fulfillment/adminFulfillment.routes.js";
 import adminEmailOutboxRoutes from "../notifications/adminEmailOutbox.routes.js";
+import adminMediaRoutes from "../media/adminMedia.routes.js";
 
 const router = Router();
 
@@ -32,6 +33,7 @@ router.use(
   }),
 );
 router.use("/", adminCatalogRoutes);
+router.use("/", adminMediaRoutes);
 router.use("/", adminCustomersRoutes);
 router.use("/", adminOrdersRoutes);
 router.use("/", adminAnalyticsRoutes);

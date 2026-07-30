@@ -10,13 +10,12 @@ import {
   useAdminCreateVariantMutation,
   useAdminUpdateVariantMutation,
   useAdminDeleteVariantMutation,
-  useAdminAddImageMutation,
-  useAdminDeleteImageMutation,
   useGetCategoriesQuery,
   type AdminProductDetail,
 } from "@/lib/catalogApi";
 import { formatINR } from "@/lib/format";
 import { buildChangedFields, hasChangedFields } from "@/lib/changedFields";
+import { ProductImageManager } from "@/features/productImages/ProductImageManager";
 
 function rupeesToPaise(value: string): number | null {
   if (!value.trim()) return null;
@@ -27,11 +26,20 @@ function rupeesToPaise(value: string): number | null {
 export default function AdminEditProductPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const [imageUploadWarning, setImageUploadWarning] = useState(false);
   const { data, isLoading, error } = useAdminGetProductQuery(params.id, {
     skip: !params.id,
   });
   const [deleteProduct, { isLoading: deleting }] =
     useAdminDeleteProductMutation();
+
+  useEffect(() => {
+    const key = `product-image-upload:${params.id}`;
+    if (sessionStorage.getItem(key) === "failed") {
+      sessionStorage.removeItem(key);
+      setImageUploadWarning(true);
+    }
+  }, [params.id]);
 
   if (error) {
     return (
@@ -66,6 +74,12 @@ export default function AdminEditProductPage() {
         / <span className="font-mono">{product.slug}</span>
       </nav>
 
+      {imageUploadWarning && (
+        <div role="alert" className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Product created, but its first image did not finish uploading. The product was kept safely; retry in Product images below.
+        </div>
+      )}
+
       <header className="flex flex-col gap-4 rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div>
           <h2 className="text-2xl font-semibold">{product.name}</h2>
@@ -89,7 +103,7 @@ export default function AdminEditProductPage() {
         </div>
 
         <aside className="space-y-6">
-          <ImageEditor product={product} />
+          <ProductImageManager product={product} />
 
           <section className="rounded-2xl border border-red-200 bg-red-50/40 p-5 shadow-[0_10px_35px_rgba(127,29,29,0.04)]">
             <h3 className="font-medium text-red-700">Danger zone</h3>
@@ -523,121 +537,6 @@ function VariantRow({
         ×
       </button>
     </li>
-  );
-}
-
-// ------------- Image editor -------------
-
-function ImageEditor({ product }: { product: AdminProductDetail }) {
-  const [addImage, { isLoading: adding }] = useAdminAddImageMutation();
-  const [deleteImage, { isLoading: deleting }] = useAdminDeleteImageMutation();
-  const [url, setUrl] = useState("");
-  const [alt, setAlt] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleAdd(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
-    if (!url.trim()) {
-      setError("Image URL is required.");
-      return;
-    }
-    try {
-      await addImage({
-        productId: product.id,
-        body: { url: url.trim(), alt: alt.trim() || undefined },
-      }).unwrap();
-      setUrl("");
-      setAlt("");
-    } catch (err) {
-      const e = err as { data?: { error?: { message?: string } } };
-      setError(e.data?.error?.message ?? "Couldn't add image.");
-    }
-  }
-
-  async function handleDelete(imageId: string) {
-    if (!confirm("Remove this image?")) return;
-    try {
-      await deleteImage({ imageId, productId: product.id }).unwrap();
-    } catch (err) {
-      const e = err as { data?: { error?: { message?: string } } };
-      alert(e.data?.error?.message ?? "Couldn't remove image.");
-    }
-  }
-
-  return (
-    <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
-      <h3 className="font-medium">Images</h3>
-      <p className="mt-1 text-xs text-muted-foreground">
-        First image is used as the primary thumbnail.
-      </p>
-
-      <ul className="mt-4 space-y-2">
-        {product.images.length === 0 ? (
-          <li className="text-sm text-muted-foreground">No images yet.</li>
-        ) : (
-          product.images.map((img, i) => (
-            <li key={img.id} className="flex items-center gap-3">
-              <span className="w-4 text-xs tabular-nums text-muted-foreground">
-                {i + 1}
-              </span>
-              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-muted">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={img.url}
-                  alt={img.alt ?? product.name}
-                  className="h-full w-full object-cover"
-                />
-              </div>
-              <span
-                className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
-                title={img.url}
-              >
-                {img.url}
-              </span>
-              <button
-                type="button"
-                onClick={() => handleDelete(img.id)}
-                disabled={deleting || adding}
-                className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40"
-                aria-label="Remove image"
-              >
-                ×
-              </button>
-            </li>
-          ))
-        )}
-      </ul>
-
-      <form
-        onSubmit={handleAdd}
-        className="mt-5 space-y-2 border-t border-border pt-4"
-      >
-        <p className="text-sm font-medium">Add image</p>
-        <input
-          type="url"
-          required
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://…"
-          className={inputCls}
-        />
-        <input
-          value={alt}
-          onChange={(e) => setAlt(e.target.value)}
-          placeholder="Alt text (optional)"
-          className={inputCls}
-        />
-        <button
-          type="submit"
-          disabled={adding}
-          className="w-full rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:opacity-90 disabled:opacity-60"
-        >
-          {adding ? "Adding…" : "Add image"}
-        </button>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-      </form>
-    </section>
   );
 }
 

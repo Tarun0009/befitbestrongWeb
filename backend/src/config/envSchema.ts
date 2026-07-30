@@ -257,6 +257,44 @@ const baseEnvSchema = z.object({
   FIREBASE_PRIVATE_KEY: emptyToUndefined(z.string().min(1).optional()),
   FIREBASE_AUTH_EMULATOR_HOST: emptyToUndefined(z.string().min(1).optional()),
 
+  // Product media is optional so an operator can launch with legacy image URLs.
+  // When enabled, all Cloudinary credentials must be configured together.
+  CLOUDINARY_CLOUD_NAME: emptyToUndefined(
+    z.string().trim().regex(/^[a-zA-Z0-9_-]+$/).optional(),
+  ),
+  CLOUDINARY_API_KEY: emptyToUndefined(z.string().trim().min(1).optional()),
+  CLOUDINARY_API_SECRET: emptyToUndefined(z.string().min(8).optional()),
+  CLOUDINARY_UPLOAD_FOLDER: z
+    .string()
+    .trim()
+    .regex(/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/)
+    .max(120)
+    .default("befitbestrong/products"),
+  CLOUDINARY_MAX_IMAGE_BYTES: z.coerce
+    .number()
+    .int()
+    .min(100_000)
+    .max(20_000_000)
+    .default(5_000_000),
+  CLOUDINARY_MAX_IMAGE_DIMENSION: z.coerce
+    .number()
+    .int()
+    .min(512)
+    .max(8_000)
+    .default(4_096),
+  CLOUDINARY_MAX_IMAGES_PER_PRODUCT: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .default(8),
+  CLOUDINARY_HTTP_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(500)
+    .max(30_000)
+    .default(8_000),
+
   // Existing deployments keep payments enabled by default. Set this to false
   // for a deliberate COD-only launch while Razorpay is being onboarded.
   PAYMENTS_ENABLED: stringBooleanDefaultTrue,
@@ -326,6 +364,9 @@ type OptionalKey =
   | "FIREBASE_PROJECT_ID"
   | "FIREBASE_CLIENT_EMAIL"
   | "FIREBASE_PRIVATE_KEY"
+  | "CLOUDINARY_CLOUD_NAME"
+  | "CLOUDINARY_API_KEY"
+  | "CLOUDINARY_API_SECRET"
   | "RAZORPAY_KEY_ID"
   | "RAZORPAY_KEY_SECRET"
   | "RAZORPAY_WEBHOOK_SECRET"
@@ -509,6 +550,17 @@ export const backendEnvSchema = baseEnvSchema.superRefine((data, context) => {
       deployed,
     );
   }
+  validateGroup(
+    data,
+    context,
+    [
+      "CLOUDINARY_CLOUD_NAME",
+      "CLOUDINARY_API_KEY",
+      "CLOUDINARY_API_SECRET",
+    ],
+    "Cloudinary product media",
+    false,
+  );
   validateGroup(
     data,
     context,

@@ -7,6 +7,15 @@ import {
   useAdminCreateProductMutation,
   useGetCategoriesQuery,
 } from "@/lib/catalogApi";
+import { ProductImageFilePicker } from "@/features/productImages/ProductImageFilePicker";
+import { uploadProductImageToCloudinary } from "@/features/productImages/cloudinaryUpload";
+import {
+  useAttachManagedProductImageMutation,
+  useCleanupManagedProductImageUploadMutation,
+  useCreateProductImageUploadSignatureMutation,
+  useGetProductMediaConfigurationQuery,
+} from "@/features/productImages/productImagesApi";
+import type { CloudinaryUploadEvidence } from "@/features/productImages/types";
 
 interface DraftVariant {
   key: string;
@@ -36,6 +45,11 @@ export default function NewProductPage() {
   const router = useRouter();
   const { data: cats } = useGetCategoriesQuery();
   const [createProduct, { isLoading }] = useAdminCreateProductMutation();
+  const { data: mediaConfiguration, isLoading: loadingMediaConfiguration } =
+    useGetProductMediaConfigurationQuery();
+  const [createImageSignature] = useCreateProductImageUploadSignatureMutation();
+  const [attachManagedImage] = useAttachManagedProductImageMutation();
+  const [cleanupManagedUpload] = useCleanupManagedProductImageUploadMutation();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -44,6 +58,9 @@ export default function NewProductPage() {
   const [compareAtPrice, setCompareAtPrice] = useState(""); // rupees
   const [dispatchHint, setDispatchHint] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imageUploadProgress, setImageUploadProgress] = useState(0);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [variants, setVariants] = useState<DraftVariant[]>([emptyVariant()]);
   const [error, setError] = useState<string | null>(null);
 
@@ -84,6 +101,41 @@ export default function NewProductPage() {
             stock: Number(v.stock) || 0,
           })),
       }).unwrap();
+      if (imageFiles[0] && mediaConfiguration?.configured) {
+        setUploadingImage(true);
+        let evidence: CloudinaryUploadEvidence | undefined;
+        try {
+          const signedUpload = await createImageSignature({
+            productId: res.product.id,
+            fileName: imageFiles[0].name,
+            contentType: imageFiles[0].type,
+          }).unwrap();
+          evidence = await uploadProductImageToCloudinary(
+            imageFiles[0],
+            signedUpload,
+            setImageUploadProgress,
+          );
+          await attachManagedImage({
+            productId: res.product.id,
+            upload: evidence,
+            alt: name.trim(),
+          }).unwrap();
+        } catch {
+          if (evidence) {
+            await cleanupManagedUpload({
+              productId: res.product.id,
+              upload: evidence,
+            })
+              .unwrap()
+              .catch(() => undefined);
+          }
+          sessionStorage.setItem(`product-image-upload:${res.product.id}`, "failed");
+          router.push(`/admin/products/${res.product.id}`);
+          return;
+        } finally {
+          setUploadingImage(false);
+        }
+      }
       router.push(`/admin/products/${res.product.id}`);
     } catch (err) {
       const e = err as { data?: { error?: { message?: string } } };
@@ -132,9 +184,57 @@ export default function NewProductPage() {
             <input value={dispatchHint} onChange={(e) => setDispatchHint(e.target.value)} maxLength={80} placeholder="Optional dispatch information shown to customers" className={inputCls} />
           </Field>
         </div>
-        <Field label="Image URL (optional)">
-          <input type="url" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://..." className={inputCls} />
-        </Field>
+        <section className="rounded-2xl border border-black/[0.07] bg-[#faf9f6] p-4 sm:p-5">
+          <h3 className="font-medium">Primary image</h3>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Optional. The image uploads after the product record is created, so it is always tied to a real product.
+          </p>
+          <div className="mt-4">
+            {loadingMediaConfiguration ? (
+              <div className="h-32 animate-pulse rounded-2xl bg-muted" />
+            ) : mediaConfiguration?.configured ? (
+              <ProductImageFilePicker
+                files={imageFiles}
+                onFilesChange={(files) => {
+                  setImageFiles(files);
+                  if (files.length > 0) setImageUrl("");
+                }}
+                configuration={mediaConfiguration}
+                maxFiles={1}
+                disabled={isLoading || uploadingImage || Boolean(imageUrl.trim())}
+              />
+            ) : (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-xs leading-5 text-amber-900">
+                Device uploads will be enabled after Cloudinary is configured. You can create the product now and add images later, or use an external URL below.
+              </div>
+            )}
+          </div>
+          {uploadingImage && (
+            <div className="mt-3 space-y-1">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Uploading primary image…</span>
+                <span>{imageUploadProgress}%</span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-black/10">
+                <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${imageUploadProgress}%` }} />
+              </div>
+            </div>
+          )}
+          <details className="mt-4 rounded-xl border border-black/10 bg-white px-3.5 py-3">
+            <summary className="cursor-pointer text-xs font-semibold">Advanced: use an external image URL</summary>
+            <input
+              type="url"
+              value={imageUrl}
+              onChange={(event) => {
+                setImageUrl(event.target.value);
+                if (event.target.value) setImageFiles([]);
+              }}
+              placeholder="https://…"
+              disabled={imageFiles.length > 0 || isLoading || uploadingImage}
+              className={inputCls}
+            />
+          </details>
+        </section>
 
         <section className="rounded-2xl border border-black/[0.07] bg-[#faf9f6] p-4 sm:p-5">
           <div className="flex items-center justify-between">
@@ -171,8 +271,8 @@ export default function NewProductPage() {
         )}
 
         <div className="flex gap-3">
-          <button type="submit" disabled={isLoading} className="rounded-md bg-primary px-4 py-2 text-primary-foreground hover:opacity-90 disabled:opacity-60">
-            {isLoading ? "Creating..." : "Create product"}
+          <button type="submit" disabled={isLoading || uploadingImage} className="rounded-md bg-primary px-4 py-2 text-primary-foreground hover:opacity-90 disabled:opacity-60">
+            {uploadingImage ? "Uploading image…" : isLoading ? "Creating..." : "Create product"}
           </button>
           <Link href="/admin/products" className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted">
             Cancel

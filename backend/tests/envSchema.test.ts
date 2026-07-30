@@ -39,6 +39,24 @@ describe("backend environment policy", () => {
     expect(result.success).toBe(false);
   });
 
+  it("keeps Cloudinary optional but rejects partial credential groups", () => {
+    expect(backendEnvSchema.safeParse(localBase).success).toBe(true);
+    expect(
+      backendEnvSchema.safeParse({
+        ...localBase,
+        CLOUDINARY_CLOUD_NAME: "demo_cloud",
+      }).success,
+    ).toBe(false);
+    const parsed = backendEnvSchema.parse({
+      ...localBase,
+      CLOUDINARY_CLOUD_NAME: "demo_cloud",
+      CLOUDINARY_API_KEY: "public-key",
+      CLOUDINARY_API_SECRET: "test-cloudinary-secret",
+    });
+    expect(parsed.CLOUDINARY_MAX_IMAGE_BYTES).toBe(5_000_000);
+    expect(parsed.CLOUDINARY_MAX_IMAGES_PER_PRODUCT).toBe(8);
+  });
+
   it("allows a loopback Firebase Auth Emulator only with a demo project locally", () => {
     expect(
       backendEnvSchema.safeParse({
