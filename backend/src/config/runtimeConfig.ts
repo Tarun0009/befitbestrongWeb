@@ -10,12 +10,14 @@ export interface RuntimeConfigurationStatus {
     payments: boolean;
     email: boolean;
     courier: boolean;
+    media: boolean;
   };
   capabilities: {
     firebase: boolean;
     payments: boolean;
     email: boolean;
     courier: boolean;
+    media: boolean;
   };
 }
 
@@ -43,12 +45,18 @@ export function getRuntimeConfigurationStatus(
       environment.SHIPROCKET_PICKUP_PINCODE &&
       environment.SHIPROCKET_WEBHOOK_SECRET,
   );
+  const media = Boolean(
+    environment.CLOUDINARY_CLOUD_NAME &&
+      environment.CLOUDINARY_API_KEY &&
+      environment.CLOUDINARY_API_SECRET,
+  );
   const deployed = environment.APP_ENV !== "local";
   const required = {
     firebase: deployed,
     payments: deployed && environment.PAYMENTS_ENABLED,
     email: environment.EMAIL_DELIVERY_REQUIRED,
     courier: false,
+    media: false,
   };
 
   return {
@@ -56,11 +64,12 @@ export function getRuntimeConfigurationStatus(
       (!required.firebase || firebase) &&
       (!required.payments || payments) &&
       (!required.email || email) &&
-      (!required.courier || courier),
+      (!required.courier || courier) &&
+      (!required.media || media),
     environment: environment.APP_ENV,
     release: environment.RELEASE_SHA ?? null,
     trustProxyHops: environment.TRUST_PROXY_HOPS,
     required,
-    capabilities: { firebase, payments, email, courier },
+    capabilities: { firebase, payments, email, courier, media },
   };
 }

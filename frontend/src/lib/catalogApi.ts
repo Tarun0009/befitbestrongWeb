@@ -161,6 +161,14 @@ export interface AdminProductDetail {
     url: string;
     alt: string | null;
     position: number;
+    provider: string | null;
+    storageKey: string | null;
+    assetId: string | null;
+    version: number | null;
+    width: number | null;
+    height: number | null;
+    bytes: number | null;
+    format: string | null;
   }>;
   variants: Array<{
     id: string;

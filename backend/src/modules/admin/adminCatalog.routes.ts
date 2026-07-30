@@ -5,6 +5,8 @@ import { HttpError } from "../../middleware/errorHandler.js";
 import { invalidateCatalog } from "../products/products.service.js";
 import { queueBackInStockNotifications } from "../wishlist/stockAlertEmail.service.js";
 import { requireAtLeastOneField, safeHttpUrl } from "../../lib/validation.js";
+import { destroyManagedProductImage, getProductMediaConfiguration } from "../media/cloudinary.service.js";
+import { lockProductImageSet } from "../media/productImages.service.js";
 
 const router = Router();
 
@@ -133,6 +135,7 @@ const productBody = z.object({
         alt: z.string().trim().max(200).optional(),
       }).strict(),
     )
+    .max(20)
     .default([]),
   variants: z.array(variantBody).max(100).default([]),
 }).strict();
@@ -203,6 +206,9 @@ router.get("/products", async (req, res, next) => {
 router.post("/products", async (req, res, next) => {
   try {
     const body = productBody.parse(req.body);
+    if (body.images.length > getProductMediaConfiguration().maxImagesPerProduct) {
+      throw new HttpError(400, "image_limit_reached", "Too many product images");
+    }
     const product = await prisma.product.create({
       data: {
         name: body.name,
@@ -285,6 +291,13 @@ router.patch("/products/:id", async (req, res, next) => {
 router.delete("/products/:id", async (req, res, next) => {
   try {
     const id = z.string().cuid().parse(req.params.id);
+    const images = await prisma.productImage.findMany({
+      where: { productId: id, provider: { not: null } },
+      select: { provider: true, storageKey: true },
+    });
+    for (const image of images) {
+      await destroyManagedProductImage(image);
+    }
     await prisma.product.delete({ where: { id } });
     await invalidateCatalog(id);
     res.status(204).end();
@@ -368,17 +381,33 @@ router.post("/products/:id/images", async (req, res, next) => {
   try {
     const productId = z.string().cuid().parse(req.params.id);
     const body = imageBody.parse(req.body);
-    // Default to appending at the end if no explicit position given.
-    const nextPos =
-      body.position ??
-      ((await prisma.productImage.count({ where: { productId } })) as number);
-    const image = await prisma.productImage.create({
-      data: {
-        productId,
-        url: body.url,
-        alt: body.alt,
-        position: nextPos,
-      },
+    const image = await prisma.$transaction(async (transaction) => {
+      await lockProductImageSet(transaction, productId);
+      const product = await transaction.product.findUnique({
+        where: { id: productId },
+        select: { id: true },
+      });
+      if (!product) {
+        throw new HttpError(404, "product_not_found", "Product not found");
+      }
+      const [imageCount, last] = await Promise.all([
+        transaction.productImage.count({ where: { productId } }),
+        transaction.productImage.aggregate({
+          where: { productId },
+          _max: { position: true },
+        }),
+      ]);
+      if (imageCount >= getProductMediaConfiguration().maxImagesPerProduct) {
+        throw new HttpError(409, "image_limit_reached", "This product already has the maximum number of images");
+      }
+      return transaction.productImage.create({
+        data: {
+          productId,
+          url: body.url,
+          alt: body.alt,
+          position: body.position ?? (last._max.position ?? -1) + 1,
+        },
+      });
     });
     await invalidateCatalog(productId);
     res.status(201).json({ image });
@@ -401,6 +430,16 @@ router.patch("/images/:imageId", async (req, res, next) => {
   try {
     const imageId = z.string().cuid().parse(req.params.imageId);
     const body = imagePatchBody.parse(req.body);
+    const current = await prisma.productImage.findUnique({
+      where: { id: imageId },
+      select: { provider: true },
+    });
+    if (!current) {
+      throw new HttpError(404, "image_not_found", "Product image not found");
+    }
+    if (current.provider && body.url) {
+      throw new HttpError(409, "managed_image_url_locked", "Managed image URLs cannot be replaced manually");
+    }
     const image = await prisma.productImage.update({
       where: { id: imageId },
       data: body,
@@ -415,9 +454,12 @@ router.patch("/images/:imageId", async (req, res, next) => {
 router.delete("/images/:imageId", async (req, res, next) => {
   try {
     const imageId = z.string().cuid().parse(req.params.imageId);
-    const image = await prisma.productImage.delete({
-      where: { id: imageId },
-    });
+    const current = await prisma.productImage.findUnique({ where: { id: imageId } });
+    if (!current) {
+      throw new HttpError(404, "image_not_found", "Product image not found");
+    }
+    await destroyManagedProductImage(current);
+    const image = await prisma.productImage.delete({ where: { id: imageId } });
     await invalidateCatalog(image.productId);
     res.status(204).end();
   } catch (err) {
