@@ -29,9 +29,6 @@ import {
   assertPaymentMethodAvailable,
   requireServiceArea,
 } from "../serviceability/serviceability.service.js";
-import { createOrderAdminNotification } from "../notifications/adminNotification.service.js";
-import { queueOrderStatusEmail } from "../orders/orderEmail.service.js";
-import { queueAdminOrderNotificationEmail } from "../notifications/adminOrderEmail.service.js";
 import {
   acquireCheckoutAttempt,
   markCheckoutAttemptFailed,
@@ -121,11 +118,18 @@ const TAX_RATE = 0; // demo has GST-inclusive pricing already
 export async function createCheckoutSession(
   input: CheckoutInput,
 ): Promise<CheckoutSessionOutcome> {
+  if (input.paymentMethod !== "PREPAID") {
+    throw new HttpError(
+      422,
+      "payment_method_unavailable",
+      "Cash on delivery is not currently available. Please pay online.",
+    );
+  }
   if (input.paymentMethod === "PREPAID" && !env.PAYMENTS_ENABLED) {
     throw new HttpError(
       503,
       "prepaid_unavailable",
-      "Online payments are temporarily unavailable. Choose Cash on delivery.",
+      "Online payments are temporarily unavailable. Please try again later.",
     );
   }
 
@@ -237,13 +241,10 @@ async function createFreshCheckoutSession(
   const guestAccessTokenHash = guestAccessToken
     ? hashGuestToken(guestAccessToken)
     : null;
-  const reservationExpiresAt =
-    input.paymentMethod === "PREPAID"
-      ? reservationExpiryDeadline(
-          new Date(),
-          env.CHECKOUT_RESERVATION_MINUTES,
-        )
-      : null;
+  const reservationExpiresAt = reservationExpiryDeadline(
+    new Date(),
+    env.CHECKOUT_RESERVATION_MINUTES,
+  );
 
   // 2. Reserve stock + create the pending order in one transaction.
   const order = await prisma.$transaction(async (tx) => {
@@ -308,7 +309,7 @@ async function createFreshCheckoutSession(
         userId: input.userId,
         contactEmail: input.contactEmail,
         guestAccessTokenHash,
-        status: input.paymentMethod === "COD" ? "CONFIRMED" : "PENDING",
+        status: "PENDING",
         paymentMethod: input.paymentMethod,
         subtotal,
         discount,
@@ -368,58 +369,20 @@ async function createFreshCheckoutSession(
         },
       },
     });
-    const initialStatus =
-      input.paymentMethod === "COD" ? "CONFIRMED" : "PENDING";
     await recordInitialHistory(
       tx,
       created.id,
       input.userId
         ? { kind: "customer", userId: input.userId }
         : { kind: "guest", note: "guest order created" },
-      initialStatus,
+      "PENDING",
     );
-
-    if (input.paymentMethod === "COD") {
-      await tx.payment.create({
-        data: {
-          orderId: created.id,
-          provider: "cod",
-          providerOrderId: "cod_" + created.id,
-          amount: total,
-          currency,
-          status: "CREATED",
-        },
-      });
-      await createOrderAdminNotification(tx, {
-        type: "ORDER_COD_PLACED",
-        orderId: created.id,
-        total,
-        currency,
-        contactEmail: input.contactEmail,
-      });
-      await queueOrderStatusEmail(tx, created.id, "CONFIRMED");
-      await queueAdminOrderNotificationEmail(
-        tx,
-        created.id,
-        "ORDER_COD_PLACED",
-      );
-    }
     await tx.checkoutAttempt.update({
       where: { id: checkoutAttemptId },
-      data: {
-        orderId: created.id,
-        ...(input.paymentMethod === "COD"
-          ? { status: "COMPLETED" as const, completedAt: new Date() }
-          : {}),
-      },
+      data: { orderId: created.id },
     });
     return created;
   });
-
-  if (input.paymentMethod === "COD") {
-    await clearCommittedCart(input.cartOwner, order.id);
-    return checkoutResult(order, guestAccessToken, null);
-  }
 
   return finalizePrepaidCheckout(
     input,
@@ -571,13 +534,6 @@ async function resumeCheckoutSession(
   }
 
   const guestAccessToken = input.userId ? null : input.idempotencyKey;
-  if (order.paymentMethod === "COD") {
-    await prisma.checkoutAttempt.update({
-      where: { id: checkoutAttemptId },
-      data: { status: "COMPLETED", completedAt: new Date() },
-    });
-    return checkoutResult(order, guestAccessToken, null);
-  }
   if (order.providerOrderId && order.payment) {
     await prisma.checkoutAttempt.update({
       where: { id: checkoutAttemptId },

@@ -107,7 +107,7 @@ export function AdminNotificationBell() {
                 <Bell className="mx-auto h-6 w-6 text-muted-foreground" />
                 <p className="mt-3 text-sm font-semibold">No notifications yet</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Captured prepaid orders and new COD orders will appear here.
+                  Captured prepaid orders will appear here.
                 </p>
               </div>
             ) : (

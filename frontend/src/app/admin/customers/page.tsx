@@ -16,13 +16,15 @@ export default function AdminCustomersPage() {
   const [role, setRole] = useState<CustomerRole | "ALL">("ALL");
   const [page, setPage] = useState(1);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
   const { data, isFetching, error } = useListCustomersQuery({
     page,
     limit: 20,
     q: search || undefined,
     role: role === "ALL" ? undefined : role,
   });
-  const [updateRole, { isLoading: updating }] = useUpdateCustomerRoleMutation();
+  const [updateRole] = useUpdateCustomerRoleMutation();
 
   function submitSearch(event: FormEvent) {
     event.preventDefault();
@@ -30,13 +32,25 @@ export default function AdminCustomersPage() {
     setSearch(searchInput.trim());
   }
 
-  async function changeRole(id: string, nextRole: CustomerRole) {
+  async function changeRole(
+    id: string,
+    email: string,
+    currentRole: CustomerRole,
+    nextRole: CustomerRole,
+  ) {
+    if (currentRole === nextRole) return;
+    if (!window.confirm(`Change ${email} from ${currentRole} to ${nextRole}?`)) return;
     setActionError(null);
+    setActionMessage(null);
+    setUpdatingId(id);
     try {
       await updateRole({ id, role: nextRole }).unwrap();
+      setActionMessage(`Access for ${email} was updated to ${nextRole}.`);
     } catch (caught) {
       const apiError = caught as { data?: { error?: { message?: string } } };
       setActionError(apiError.data?.error?.message ?? "Could not update this account.");
+    } finally {
+      setUpdatingId(null);
     }
   }
 
@@ -86,6 +100,7 @@ export default function AdminCustomersPage() {
       </section>
 
       {actionError && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{actionError}</div>}
+      {actionMessage && <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{actionMessage}</div>}
       {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Customers could not be loaded. Check the API connection and try again.</div>}
 
       <section className="overflow-hidden rounded-2xl border border-black/[0.07] bg-white shadow-[0_10px_35px_rgba(23,23,20,0.04)]">
@@ -116,7 +131,7 @@ export default function AdminCustomersPage() {
                       <td className="px-5 py-4"><span className="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-[#f8f7f3] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider"><ShieldCheck className="h-3 w-3" /> {customer.role}</span></td>
                       <td className="px-5 py-4 text-center font-semibold">{customer._count.orders}</td><td className="px-5 py-4 text-center font-semibold">{customer._count.wishlistItems}</td>
                       <td className="px-5 py-4 text-xs text-muted-foreground">{new Date(customer.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td>
-                      <td className="px-5 py-4 text-right"><select aria-label={`Change role for ${customer.email}`} disabled={updating} value={customer.role} onChange={(event) => void changeRole(customer.id, event.target.value as CustomerRole)} className="rounded-lg border border-black/10 bg-white px-2.5 py-2 text-xs font-semibold outline-none focus:border-primary disabled:opacity-50"><option value="CUSTOMER">Customer</option><option value="ADMIN">Admin</option></select></td>
+                      <td className="px-5 py-4 text-right"><div className="inline-flex items-center gap-2"><select aria-label={`Change role for ${customer.email}`} disabled={updatingId === customer.id} value={customer.role} onChange={(event) => void changeRole(customer.id, customer.email, customer.role, event.target.value as CustomerRole)} className="rounded-lg border border-black/10 bg-white px-2.5 py-2 text-xs font-semibold outline-none focus:border-primary disabled:opacity-50"><option value="CUSTOMER">Customer</option><option value="ADMIN">Admin</option></select>{updatingId === customer.id && <span className="text-[10px] font-semibold text-muted-foreground">Saving…</span>}</div></td>
                     </tr>
                   ))}
                 </tbody>

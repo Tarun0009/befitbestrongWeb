@@ -56,7 +56,7 @@ const idParam = z.object({
   id: z.string().cuid(),
 }).strict();
 
-router.post("/users/:id/role", async (req, res, next) => {
+router.patch("/users/:id/role", async (req, res, next) => {
   try {
     const { id } = idParam.parse(req.params);
     const { role } = roleBody.parse(req.body);

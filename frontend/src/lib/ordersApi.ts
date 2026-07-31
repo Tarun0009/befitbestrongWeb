@@ -194,6 +194,7 @@ export interface VerifyCheckoutPaymentResponse {
 
 export interface CheckoutConfig {
   paymentsEnabled: boolean;
+  paymentMethods: ["PREPAID"];
   razorpayConfigured: boolean;
   razorpayKeyId: string | null;
   devMode: boolean;

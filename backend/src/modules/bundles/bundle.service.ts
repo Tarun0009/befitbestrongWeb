@@ -46,6 +46,8 @@ export interface BundleWriteInput {
   items: Array<{ variantId: string; quantity: number }>;
 }
 
+export type BundleUpdateInput = Partial<BundleWriteInput>;
+
 function slugify(value: string) {
   return value
     .trim()
@@ -285,29 +287,73 @@ export async function createBundle(input: BundleWriteInput) {
   return { bundle: presentBundle(row) };
 }
 
-export async function updateBundle(id: string, input: BundleWriteInput) {
-  await validateWrite(input);
-  const slug = slugify(input.name);
-  const row = await prisma.$transaction(async (tx) => {
-    await tx.bundleItem.deleteMany({ where: { bundleId: id } });
-    return tx.bundle.update({
-      where: { id },
-      data: {
-        name: input.name,
-        slug,
-        description: input.description,
-        imageUrl: input.imageUrl ?? null,
-        active: input.active,
-        pricingType: input.pricingType,
-        value: input.value,
-        startsAt: input.startsAt ?? null,
-        endsAt: input.endsAt ?? null,
-        items: {
-          create: input.items.map((item, position) => ({ ...item, position })),
-        },
-      },
-      include: bundleInclude,
-    });
+export async function updateBundle(id: string, input: BundleUpdateInput) {
+  const current = await prisma.bundle.findUnique({
+    where: { id },
+    include: bundleInclude,
+  });
+  if (!current) {
+    throw new HttpError(404, "bundle_not_found", "Bundle not found");
+  }
+
+  const merged: BundleWriteInput = {
+    name: input.name ?? current.name,
+    description: input.description ?? current.description,
+    imageUrl:
+      input.imageUrl !== undefined ? input.imageUrl : current.imageUrl,
+    active: input.active ?? current.active,
+    pricingType: input.pricingType ?? current.pricingType,
+    value: input.value ?? current.value,
+    startsAt:
+      input.startsAt !== undefined ? input.startsAt : current.startsAt,
+    endsAt: input.endsAt !== undefined ? input.endsAt : current.endsAt,
+    items:
+      input.items ??
+      current.items.map((item) => ({
+        variantId: item.variantId,
+        quantity: item.quantity,
+      })),
+  };
+  await validateWrite(merged);
+  const nextSlug = input.name !== undefined ? slugify(input.name) : current.slug;
+  if (!nextSlug) {
+    throw new HttpError(
+      400,
+      "bundle_name_invalid",
+      "Bundle name is invalid",
+    );
+  }
+
+  const row = await prisma.bundle.update({
+    where: { id },
+    data: {
+      ...(input.name !== undefined
+        ? { name: input.name, slug: nextSlug }
+        : {}),
+      ...(input.description !== undefined
+        ? { description: input.description }
+        : {}),
+      ...(input.imageUrl !== undefined ? { imageUrl: input.imageUrl } : {}),
+      ...(input.active !== undefined ? { active: input.active } : {}),
+      ...(input.pricingType !== undefined
+        ? { pricingType: input.pricingType }
+        : {}),
+      ...(input.value !== undefined ? { value: input.value } : {}),
+      ...(input.startsAt !== undefined ? { startsAt: input.startsAt } : {}),
+      ...(input.endsAt !== undefined ? { endsAt: input.endsAt } : {}),
+      ...(input.items !== undefined
+        ? {
+            items: {
+              deleteMany: {},
+              create: input.items.map((item, position) => ({
+                ...item,
+                position,
+              })),
+            },
+          }
+        : {}),
+    },
+    include: bundleInclude,
   });
   return { bundle: presentBundle(row) };
 }

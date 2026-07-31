@@ -5,7 +5,6 @@ import Link from "next/link";
 import Script from "next/script";
 import { useRouter } from "next/navigation";
 import {
-  Banknote,
   CreditCard,
   LockKeyhole,
   Mail,
@@ -21,7 +20,6 @@ import {
   useVerifyCheckoutPaymentMutation,
   type CheckoutAddress,
   type CouponValidation,
-  type PaymentMethod,
 } from "@/lib/ordersApi";
 import { useAppSelector } from "@/lib/hooks";
 import { formatINR } from "@/lib/format";
@@ -96,18 +94,10 @@ export default function CheckoutPage() {
   const [coupon, setCoupon] = useState<CouponValidation | null>(null);
   const [serviceability, setServiceability] =
     useState<ServiceabilityResult | null>(null);
-  const [paymentMethod, setPaymentMethod] =
-    useState<PaymentMethod>("PREPAID");
   const [step, setStep] = useState<"details" | "review">("details");
   const checkoutAttempt = useRef<{ fingerprint: string; key: string } | null>(
     null,
   );
-
-  useEffect(() => {
-    if (config && !paymentsEnabled) {
-      setPaymentMethod("COD");
-    }
-  }, [config, paymentsEnabled]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -166,7 +156,7 @@ export default function CheckoutPage() {
       address,
       email: user?.email ?? email.trim(),
       couponCode: coupon?.code,
-      paymentMethod,
+      paymentMethod: "PREPAID" as const,
     };
     const fingerprint = JSON.stringify({
       checkoutBody,
@@ -191,11 +181,6 @@ export default function CheckoutPage() {
       }).unwrap();
 
       storeGuestOrderToken(session.orderId, session.guestAccessToken);
-
-      if (session.paymentMethod === "COD") {
-        router.push("/checkout/success?orderId=" + session.orderId);
-        return;
-      }
 
       if (
         session.razorpay &&
@@ -349,18 +334,6 @@ export default function CheckoutPage() {
                   ...(result.state ? { state: result.state } : {}),
                   pincode: result.pincode,
                 }));
-                const payableBeforeFee = coupon?.total ?? cart.subtotal;
-                if (!paymentsEnabled) {
-                  setPaymentMethod("COD");
-                } else if (
-                  !result.codEnabled ||
-                  payableBeforeFee + result.codFee >
-                    result.codMaxOrderAmount
-                ) {
-                  setPaymentMethod("PREPAID");
-                } else if (!result.prepaidEnabled) {
-                  setPaymentMethod("COD");
-                }
               }
             }}
             error={error}
@@ -377,9 +350,6 @@ export default function CheckoutPage() {
             devMode={!config?.razorpayConfigured && Boolean(config?.devMode)}
             paymentsEnabled={paymentsEnabled}
             serviceability={serviceability}
-            paymentMethod={paymentMethod}
-            onPaymentMethodChange={setPaymentMethod}
-            amountBeforeFee={coupon?.total ?? cart.subtotal}
           />
         )}
 
@@ -387,12 +357,6 @@ export default function CheckoutPage() {
           cart={cart}
           coupon={coupon}
           onCouponChange={setCoupon}
-          paymentMethod={paymentMethod}
-          paymentFee={
-            paymentMethod === "COD" && serviceability?.serviceable
-              ? serviceability.codFee
-              : 0
-          }
         />
       </div>
     </main>
@@ -559,9 +523,6 @@ function ReviewPanel({
   devMode,
   paymentsEnabled,
   serviceability,
-  paymentMethod,
-  onPaymentMethodChange,
-  amountBeforeFee,
 }: {
   email: string;
   address: CheckoutAddress;
@@ -572,19 +533,9 @@ function ReviewPanel({
   devMode: boolean;
   paymentsEnabled: boolean;
   serviceability: ServiceabilityResult | null;
-  paymentMethod: PaymentMethod;
-  onPaymentMethodChange: (method: PaymentMethod) => void;
-  amountBeforeFee: number;
 }) {
   const supported = serviceability?.serviceable ? serviceability : null;
-  const codEligible = Boolean(
-    supported?.codEnabled &&
-      amountBeforeFee + supported.codFee <= supported.codMaxOrderAmount,
-  );
-  const paymentValid =
-    paymentMethod === "COD"
-      ? codEligible
-      : paymentsEnabled && Boolean(supported?.prepaidEnabled);
+  const paymentValid = paymentsEnabled && Boolean(supported?.prepaidEnabled);
 
   return (
     <div className="space-y-5">
@@ -625,67 +576,21 @@ function ReviewPanel({
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Payment method
         </p>
-        <div
-          className={
-            "mt-3 grid gap-3 " + (paymentsEnabled ? "sm:grid-cols-2" : "")
-          }
-        >
-          {paymentsEnabled && (
-            <button
-              type="button"
-              disabled={!supported?.prepaidEnabled}
-              onClick={() => onPaymentMethodChange("PREPAID")}
-              className={
-                "rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-45 " +
-                (paymentMethod === "PREPAID"
-                  ? "border-foreground bg-foreground text-background"
-                  : "border-border hover:bg-muted/40")
-              }
-            >
-              <CreditCard className="h-5 w-5" />
-              <span className="mt-3 block text-sm font-semibold">Pay online</span>
-              <span className="mt-1 block text-xs opacity-70">
-                Secure Razorpay checkout
-              </span>
-            </button>
-          )}
-          <button
-            type="button"
-            disabled={!codEligible}
-            onClick={() => onPaymentMethodChange("COD")}
-            className={
-              "rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-45 " +
-              (paymentMethod === "COD"
-                ? "border-foreground bg-foreground text-background"
-                : "border-border hover:bg-muted/40")
-            }
-          >
-            <Banknote className="h-5 w-5" />
-            <span className="mt-3 block text-sm font-semibold">
-              Cash on delivery
-            </span>
-            <span className="mt-1 block text-xs opacity-70">
-              {supported?.codFee
-                ? formatINR(supported.codFee) + " handling fee"
-                : "Pay when your order arrives"}
-            </span>
-          </button>
+        <div className="mt-3 rounded-xl border border-foreground bg-foreground p-4 text-background">
+          <CreditCard className="h-5 w-5" />
+          <span className="mt-3 block text-sm font-semibold">Pay online</span>
+          <span className="mt-1 block text-xs opacity-70">
+            Secure Razorpay checkout
+          </span>
         </div>
         {!paymentsEnabled && (
           <p className="mt-3 text-xs leading-5 text-muted-foreground">
-            Online payments are temporarily unavailable. Cash on delivery is
-            currently available.
-          </p>
-        )}
-        {supported?.codEnabled && !codEligible && (
-          <p className="mt-3 text-xs leading-5 text-orange-700">
-            COD is limited to {formatINR(supported.codMaxOrderAmount)} for this
-            PIN code. Online payment is still available.
+            Online checkout is temporarily unavailable. Please try again later.
           </p>
         )}
       </section>
 
-      {devMode && paymentMethod === "PREPAID" && (
+      {devMode && (
         <p className="rounded-lg bg-orange-500/10 px-3 py-2 text-sm text-orange-700 ring-1 ring-inset ring-orange-500/20">
           Development mode: payment will be simulated locally.
         </p>
@@ -703,18 +608,12 @@ function ReviewPanel({
         disabled={paying || !paymentValid}
         className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-bold text-primary-foreground hover:brightness-95 disabled:opacity-60"
       >
-        {paymentMethod === "COD" ? (
-          <Banknote className="h-4 w-4" />
-        ) : (
-          <LockKeyhole className="h-4 w-4" />
-        )}
+        <LockKeyhole className="h-4 w-4" />
         {paying
           ? "Placing order…"
-          : paymentMethod === "COD"
-            ? "Place cash on delivery order"
-            : devMode
-              ? "Place order (dev mode)"
-              : "Pay securely with Razorpay"}
+          : devMode
+            ? "Place order (dev mode)"
+            : "Pay securely with Razorpay"}
       </button>
       <Link
         href="/cart"
@@ -730,14 +629,10 @@ function OrderSummary({
   cart,
   coupon,
   onCouponChange,
-  paymentMethod,
-  paymentFee,
 }: {
   cart: Cart;
   coupon: CouponValidation | null;
   onCouponChange: (coupon: CouponValidation | null) => void;
-  paymentMethod: PaymentMethod;
-  paymentFee: number;
 }) {
   const [code, setCode] = useState("");
   const [couponError, setCouponError] = useState<string | null>(null);
@@ -759,7 +654,7 @@ function OrderSummary({
     }
   }
 
-  const total = (coupon?.total ?? cart.subtotal) + paymentFee;
+  const total = coupon?.total ?? cart.subtotal;
 
   return (
     <aside className="h-fit rounded-xl border border-border p-5 lg:sticky lg:top-36">
@@ -862,12 +757,6 @@ function OrderSummary({
           <dt>Shipping</dt>
           <dd>Free</dd>
         </div>
-        {paymentMethod === "COD" && paymentFee > 0 && (
-          <div className="flex justify-between text-muted-foreground">
-            <dt>COD handling fee</dt>
-            <dd>{formatINR(paymentFee)}</dd>
-          </div>
-        )}
         <div className="flex justify-between border-t border-border pt-3 text-base font-semibold">
           <dt>Total</dt>
           <dd className="tabular-nums">{formatINR(total)}</dd>

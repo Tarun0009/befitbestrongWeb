@@ -66,7 +66,7 @@ export const adminCustomersApi = createApi({
         : ["AdminCustomers"],
     }),
     updateCustomerRole: builder.mutation<{ user: Pick<AdminCustomer, "id" | "email" | "role"> }, { id: string; role: CustomerRole }>({
-      query: ({ id, role }) => ({ url: `/admin/users/${id}/role`, method: "POST", body: { role } }),
+      query: ({ id, role }) => ({ url: `/admin/users/${id}/role`, method: "PATCH", body: { role } }),
       invalidatesTags: (_result, _error, arg) => ["AdminCustomers", { type: "AdminCustomer", id: arg.id }],
     }),
   }),

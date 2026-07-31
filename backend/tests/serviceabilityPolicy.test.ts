@@ -36,7 +36,7 @@ describe("serviceability and payment policy", () => {
     await expect(requireServiceArea("999999")).resolves.toMatchObject({
       pincode: "999999",
       prepaidEnabled: true,
-      codEnabled: true,
+      codEnabled: false,
     });
   });
 
@@ -47,14 +47,10 @@ describe("serviceability and payment policy", () => {
     });
   });
 
-  it("adds the configured COD fee and includes it in the limit", () => {
-    expect(assertPaymentMethodAvailable(area, "COD", 490_000)).toEqual({
-      paymentFee: 4_900,
-      total: 494_900,
-    });
-    expect(() =>
-      assertPaymentMethodAvailable(area, "COD", 496_000),
-    ).toThrow(HttpError);
+  it("rejects COD even when a legacy service-area row enables it", () => {
+    expect(() => assertPaymentMethodAvailable(area, "COD", 100_000)).toThrow(
+      HttpError,
+    );
   });
 
   it("rejects disabled payment methods", () => {
@@ -62,13 +58,6 @@ describe("serviceability and payment policy", () => {
       assertPaymentMethodAvailable(
         { ...area, prepaidEnabled: false },
         "PREPAID",
-        100_000,
-      ),
-    ).toThrow(HttpError);
-    expect(() =>
-      assertPaymentMethodAvailable(
-        { ...area, codEnabled: false },
-        "COD",
         100_000,
       ),
     ).toThrow(HttpError);

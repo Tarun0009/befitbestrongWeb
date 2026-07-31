@@ -139,7 +139,7 @@ test("customer wishlist, rewards, and subscriptions work after authenticated pre
     await page.getByRole("button", { name: "Check" }).click();
     expect((await serviceabilityPromise).status()).toBe(200);
     await page.getByRole("button", { name: "Continue to review" }).click();
-    await page.getByRole("button", { name: /Pay online/ }).click();
+    await expect(page.getByText("Pay online", { exact: true })).toBeVisible();
     await page.waitForFunction(() => typeof window.Razorpay === "function");
 
     const checkoutPromise = page.waitForResponse(

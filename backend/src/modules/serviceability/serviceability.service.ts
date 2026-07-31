@@ -36,8 +36,11 @@ export type ServiceabilityPolicy = Pick<
 // Amounts are stored in paise, matching the rest of the payment system.
 const PAN_INDIA_POLICY = {
   prepaidEnabled: true,
-  codEnabled: true,
-  codMaxOrderAmount: 500_000,
+  // COD is intentionally unavailable for the current launch. Keep the
+  // response fields for API compatibility and historical order rendering,
+  // but never advertise or authorize a new COD checkout.
+  codEnabled: false,
+  codMaxOrderAmount: 0,
   codFee: 0,
   estimatedDeliveryMinDays: 3,
   estimatedDeliveryMaxDays: 7,
@@ -105,26 +108,11 @@ export function assertPaymentMethodAvailable(
     return { paymentFee: 0, total: amountBeforeFee };
   }
 
-  if (!area.codEnabled) {
-    throw new HttpError(
-      422,
-      "cod_unavailable",
-      "Cash on delivery is not available for this PIN code",
-    );
-  }
-
-  const total = amountBeforeFee + area.codFee;
-  if (total > area.codMaxOrderAmount) {
-    throw new HttpError(
-      422,
-      "cod_limit_exceeded",
-      "Cash on delivery is available up to ₹" +
-        Math.floor(area.codMaxOrderAmount / 100).toLocaleString("en-IN") +
-        " for this PIN code",
-    );
-  }
-
-  return { paymentFee: area.codFee, total };
+  throw new HttpError(
+    422,
+    "cod_unavailable",
+    "Cash on delivery is not currently available. Please pay online.",
+  );
 }
 
 export type ServiceabilityTx = Prisma.TransactionClient;

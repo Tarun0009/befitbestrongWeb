@@ -295,8 +295,8 @@ const baseEnvSchema = z.object({
     .max(30_000)
     .default(8_000),
 
-  // Existing deployments keep payments enabled by default. Set this to false
-  // for a deliberate COD-only launch while Razorpay is being onboarded.
+  // Existing deployments keep payments enabled by default. Since checkout is
+  // prepaid-only, false places checkout into maintenance mode.
   PAYMENTS_ENABLED: stringBooleanDefaultTrue,
   RAZORPAY_KEY_ID: emptyToUndefined(z.string().min(1).optional()),
   RAZORPAY_KEY_SECRET: emptyToUndefined(z.string().min(1).optional()),

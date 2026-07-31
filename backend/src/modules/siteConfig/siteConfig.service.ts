@@ -354,3 +354,40 @@ export async function updateSiteConfig(patch: SiteConfigUpdate) {
   await invalidateTag(SITE_CONFIG_TAG);
   return updated;
 }
+
+export async function updateHomepageContentSection(
+  section: keyof HomepageContent,
+  value: HomepageContent[keyof HomepageContent],
+) {
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.siteConfig.upsert({
+      where: { id: SITE_CONFIG_ID },
+      create: { id: SITE_CONFIG_ID },
+      update: {},
+    });
+    await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "SiteConfig"
+      WHERE "id" = ${SITE_CONFIG_ID}
+      FOR UPDATE
+    `;
+    const current = await tx.siteConfig.findUniqueOrThrow({
+      where: { id: SITE_CONFIG_ID },
+    });
+    const homepageContent = {
+      ...normalizeHomepageContent(current.homepageContent),
+      [section]: value,
+    } as HomepageContent;
+    return tx.siteConfig.update({
+      where: { id: SITE_CONFIG_ID },
+      data: {
+        homepageContent: homepageContent as unknown as Prisma.InputJsonValue,
+      },
+    });
+  });
+  await invalidateTag(SITE_CONFIG_TAG);
+  return {
+    ...updated,
+    homepageContent: normalizeHomepageContent(updated.homepageContent),
+  };
+}
