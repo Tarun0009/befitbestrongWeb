@@ -134,6 +134,10 @@ export type AdminSiteConfigPatch = Partial<
   Omit<AdminSiteConfig, "id" | "createdAt" | "updatedAt">
 >;
 
+export type AdminHomepageSectionUpdate = {
+  [K in keyof HomepageContent]: { section: K; value: HomepageContent[K] };
+}[keyof HomepageContent];
+
 export const siteConfigApi = createApi({
   reducerPath: "siteConfigApi",
   baseQuery: baseQueryWithRefresh,
@@ -156,7 +160,46 @@ export const siteConfigApi = createApi({
         method: "PATCH",
         body,
       }),
-      invalidatesTags: ["SiteConfig", "AdminSiteConfig"],
+      invalidatesTags: ["SiteConfig"],
+      async onQueryStarted(_body, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled;
+          dispatch(
+            siteConfigApi.util.updateQueryData(
+              "adminGetSiteConfig",
+              undefined,
+              (draft) => { draft.config = data.config; },
+            ),
+          );
+        } catch {
+          // The mutation result already exposes the request error to the form.
+        }
+      },
+    }),
+    adminUpdateHomepageSection: builder.mutation<
+      { config: AdminSiteConfig },
+      AdminHomepageSectionUpdate
+    >({
+      query: ({ section, value }) => ({
+        url: `/admin/site-config/homepage/${section}`,
+        method: "PATCH",
+        body: { value },
+      }),
+      invalidatesTags: ["SiteConfig"],
+      async onQueryStarted(_request, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled;
+          dispatch(
+            siteConfigApi.util.updateQueryData(
+              "adminGetSiteConfig",
+              undefined,
+              (draft) => { draft.config = data.config; },
+            ),
+          );
+        } catch {
+          // The mutation result already exposes the request error to the form.
+        }
+      },
     }),
   }),
 });
@@ -165,5 +208,6 @@ export const {
   useGetSiteConfigQuery,
   useAdminGetSiteConfigQuery,
   useAdminUpdateSiteConfigMutation,
+  useAdminUpdateHomepageSectionMutation,
 } = siteConfigApi;
 

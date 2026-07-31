@@ -347,14 +347,14 @@ test.describe("account lifecycle security launch gate", () => {
     let orderId: string | undefined;
 
     try {
-      fixture = await setupCheckoutFixture("cod", runId);
+      fixture = await setupCheckoutFixture("prepaid", runId);
       session = await createFirebaseAccount(
         request,
         fixture.email,
         originalPassword,
       );
       await syncBackendSession(request, session.idToken);
-      orderId = await createCodOrder(request, session.idToken, fixture);
+      orderId = await createPendingPrepaidOrder(request, session.idToken, fixture);
 
       const deletion = await request.delete(`${backendUrl}/auth/account`, {
         headers: bearer(session.idToken),
@@ -378,7 +378,7 @@ test.describe("account lifecycle security launch gate", () => {
     } finally {
       await bestEffortDeleteFirebaseUser(request, session?.idToken);
       if (orderId) await runProbe("cleanup-order", orderId);
-      if (fixture) await cleanupCheckoutFixture("cod", runId);
+      if (fixture) await cleanupCheckoutFixture("prepaid", runId);
     }
   });
 
@@ -392,14 +392,14 @@ test.describe("account lifecycle security launch gate", () => {
     let orderId: string | undefined;
 
     try {
-      fixture = await setupCheckoutFixture("cod", runId);
+      fixture = await setupCheckoutFixture("prepaid", runId);
       session = await createFirebaseAccount(
         request,
         fixture.email,
         originalPassword,
       );
       user = await syncBackendSession(request, session.idToken);
-      orderId = await createCodOrder(request, session.idToken, fixture);
+      orderId = await createPendingPrepaidOrder(request, session.idToken, fixture);
       await runProbe(
         "seed-review",
         user.id,
@@ -477,7 +477,7 @@ test.describe("account lifecycle security launch gate", () => {
     } finally {
       await bestEffortDeleteFirebaseUser(request, session?.idToken);
       if (orderId) await runProbe("cleanup-order", orderId);
-      if (fixture) await cleanupCheckoutFixture("cod", runId);
+      if (fixture) await cleanupCheckoutFixture("prepaid", runId);
     }
   });
 });
@@ -603,7 +603,7 @@ async function latestEmailChangeCode(
   return candidate!.oobCode!;
 }
 
-async function createCodOrder(
+async function createPendingPrepaidOrder(
   request: APIRequestContext,
   idToken: string,
   fixture: CheckoutFixture,
@@ -620,7 +620,7 @@ async function createCodOrder(
       "Idempotency-Key": `account-lifecycle-${randomUUID()}`,
     },
     data: {
-      paymentMethod: "COD",
+      paymentMethod: "PREPAID",
       address: {
         fullName: "Account Lifecycle Customer",
         phone: "9999999999",
@@ -637,7 +637,7 @@ async function createCodOrder(
     orderId: string;
     paymentMethod: string;
   };
-  expect(payload.paymentMethod).toBe("COD");
+  expect(payload.paymentMethod).toBe("PREPAID");
   return payload.orderId;
 }
 

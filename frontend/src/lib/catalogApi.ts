@@ -298,6 +298,7 @@ export const catalogApi = createApi({
       query: (body) => ({ url: "/admin/products", method: "POST", body }),
       invalidatesTags: [
         "AdminProducts",
+        "AdminCategories",
         "Products",
         "Categories",
         "Search",
@@ -323,17 +324,23 @@ export const catalogApi = createApi({
         method: "PATCH",
         body,
       }),
-      invalidatesTags: (_r, _e, arg) => [
-        "AdminProducts",
-        { type: "AdminProduct" as const, id: arg.id },
-        "Products",
-        "Categories",
-        "Search",
-      ],
+      invalidatesTags: (_r, _e, arg) => {
+        const categoryCountsChanged =
+          arg.body.categoryId !== undefined || arg.body.active !== undefined;
+        return [
+          "AdminProducts" as const,
+          { type: "AdminProduct" as const, id: arg.id },
+          "Products" as const,
+          "Search" as const,
+          ...(categoryCountsChanged
+            ? (["Categories", "AdminCategories"] as const)
+            : []),
+        ];
+      },
     }),
     adminDeleteProduct: builder.mutation<void, string>({
       query: (id) => ({ url: `/admin/products/${id}`, method: "DELETE" }),
-      invalidatesTags: ["AdminProducts", "Products", "Search"],
+      invalidatesTags: ["AdminProducts", "AdminCategories", "Products", "Categories", "Search"],
     }),
 
     // Variant CRUD — used by the variant editor on the product edit page.

@@ -2,7 +2,6 @@
 
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { CheckCircle2, Loader2, MapPin } from "lucide-react";
-import { formatINR } from "@/lib/format";
 import {
   useLazyCheckServiceabilityQuery,
   type ServiceabilityResult,
@@ -106,11 +105,7 @@ export function PincodeChecker({
           </p>
           <p className="mt-1 text-xs leading-5">
             Estimated {result.estimatedDeliveryMinDays}–{result.estimatedDeliveryMaxDays} business days
-            {" · "}
-            {result.codEnabled
-              ? "COD available" +
-                (result.codFee ? " (" + formatINR(result.codFee) + " fee)" : "")
-              : "Prepaid only"}
+            {" · "}Online payment
           </p>
         </div>
       )}

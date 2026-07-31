@@ -77,9 +77,10 @@ export default function AdminBundlesPage() {
         })),
       }
     : null;
-  const editDirty =
-    !originalBundleBody ||
-    hasChangedFields(buildChangedFields(bundleBody, originalBundleBody));
+  const bundlePatch = originalBundleBody
+    ? buildChangedFields(bundleBody, originalBundleBody)
+    : {};
+  const editDirty = !originalBundleBody || hasChangedFields(bundlePatch);
 
   useEffect(() => {
     if (!editing) return;
@@ -124,7 +125,7 @@ export default function AdminBundlesPage() {
     }
     try {
       if (editing) {
-        await updateBundle({ id: editing.id, body: bundleBody }).unwrap();
+        await updateBundle({ id: editing.id, body: bundlePatch }).unwrap();
         setMessage("Bundle updated.");
       } else {
         await createBundle(bundleBody).unwrap();

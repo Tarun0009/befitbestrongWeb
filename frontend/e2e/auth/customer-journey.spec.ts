@@ -26,8 +26,19 @@ test("customer signup merges the guest cart and supports checkout and password r
   let fixture: CheckoutFixture | undefined;
   let cartSid: string | undefined;
 
+  await page.route("https://checkout.razorpay.com/v1/checkout.js", (route) =>
+    route.fulfill({
+      contentType: "application/javascript",
+      body: `
+        window.Razorpay = function Razorpay() {
+          this.open = function open() {};
+        };
+      `,
+    }),
+  );
+
   try {
-    fixture = await setupCheckoutFixture("cod", runId);
+    fixture = await setupCheckoutFixture("prepaid", runId);
 
     const addResponse = await context.request.post(`${backendUrl}/cart/items`, {
       data: { variantId: fixture.variantId, quantity: 1 },
@@ -103,21 +114,30 @@ test("customer signup merges the guest cart and supports checkout and password r
         response.request().method() === "GET",
     );
     await page.getByRole("button", { name: "Check" }).click();
-    expect((await serviceabilityResponsePromise).status()).toBe(200);
+    const serviceabilityResponse = await serviceabilityResponsePromise;
+    expect(serviceabilityResponse.status()).toBe(200);
+    await expect(serviceabilityResponse.json()).resolves.toMatchObject({
+      serviceable: true,
+      codEnabled: false,
+    });
     await expect(
       page.getByText(`Delivery is available across India · ${fixture.city}`),
     ).toBeVisible();
 
     await page.getByRole("button", { name: "Continue to review" }).click();
-    await page.getByRole("button", { name: /Cash on delivery/ }).click();
+    await expect(page.getByText("Pay online", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Cash on delivery/ }),
+    ).toHaveCount(0);
+    await page.waitForFunction(() => typeof window.Razorpay === "function");
     const checkoutResponsePromise = page.waitForResponse(
       (response) =>
         response.url() === `${backendUrl}/checkout/session` &&
         response.request().method() === "POST",
     );
-    await page
-      .getByRole("button", { name: "Place cash on delivery order" })
-      .click();
+    await page.getByRole("button", {
+      name: "Pay securely with Razorpay",
+    }).click();
     const checkoutResponse = await checkoutResponsePromise;
     expect(checkoutResponse.status()).toBe(201);
     const checkout = (await checkoutResponse.json()) as {
@@ -127,25 +147,16 @@ test("customer signup merges the guest cart and supports checkout and password r
     };
     expect(checkout).toMatchObject({
       guestAccessToken: null,
-      paymentMethod: "COD",
+      paymentMethod: "PREPAID",
     });
 
-    await expect(page).toHaveURL(
-      new RegExp(`/checkout/success\\?orderId=${checkout.orderId}$`),
-    );
-    await expect(
-      page.getByRole("heading", { name: "Thank you for your order" }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "View order details" }),
-    ).toBeVisible();
-
+    await expect(page).toHaveURL(/\/checkout$/);
     await page.goto("/account/orders");
     await expect(
       page.getByRole("heading", { name: "Your orders" }),
     ).toBeVisible();
     await expect(page.getByText(fixture.productName)).toBeVisible();
-    await expect(page.getByText("CONFIRMED", { exact: true })).toBeVisible();
+    await expect(page.getByText("PENDING", { exact: true })).toBeVisible();
 
     await page.getByText(fixture.productName).click();
     await expect(page).toHaveURL(
@@ -213,7 +224,7 @@ test("customer signup merges the guest cart and supports checkout and password r
     await page.goto("/account/orders");
     await expect(page.getByText(fixture.productName)).toBeVisible();
   } finally {
-    await cleanupCheckoutFixture("cod", runId, cartSid);
+    await cleanupCheckoutFixture("prepaid", runId, cartSid);
   }
 });
 

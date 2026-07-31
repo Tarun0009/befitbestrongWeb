@@ -3,13 +3,16 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
   useAdminGetSiteConfigQuery,
+  useAdminUpdateHomepageSectionMutation,
   useAdminUpdateSiteConfigMutation,
+  type AdminHomepageSectionUpdate,
   type AdminSiteConfig,
   type AdminSiteConfigPatch,
   type HeroSlide,
   type RewardTier,
 } from "@/lib/siteConfigApi";
 import { useAdminListProductsQuery } from "@/lib/catalogApi";
+import { hasChangedFields } from "@/lib/changedFields";
 
 import {
   DEFAULT_HOMEPAGE_CONTENT,
@@ -33,24 +36,31 @@ const emptySlide = (): HeroSlide => ({
 
 export default function AdminHomepagePage() {
   const { data, isLoading } = useAdminGetSiteConfigQuery();
-  const [update, { isLoading: saving }] = useAdminUpdateSiteConfigMutation();
+  const [updateSiteConfig] = useAdminUpdateSiteConfigMutation();
+  const [updateHomepageSection] = useAdminUpdateHomepageSectionMutation();
 
   const [draft, setDraft] = useState<AdminSiteConfig | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
+  const [baseline, setBaseline] = useState<AdminSiteConfig | null>(null);
+  const [savingSection, setSavingSection] = useState<string | null>(null);
+  const [sectionStatus, setSectionStatus] = useState<
+    Record<string, { message: string; error: boolean }>
+  >({});
 
   useEffect(() => {
-    if (data?.config) {
-      setDraft({
+    if (data?.config && !draft) {
+      const normalized = {
         ...data.config,
         heroSlides: data.config.heroSlides ?? [],
         rewardTiers: data.config.rewardTiers ?? [],
         homepageContent:
           data.config.homepageContent ?? DEFAULT_HOMEPAGE_CONTENT,
-      });
+      };
+      setDraft(normalized);
+      setBaseline(normalized);
     }
-  }, [data]);
+  }, [data, draft]);
 
-  if (isLoading || !draft) {
+  if (isLoading || !draft || !baseline) {
     return <div className="h-40 animate-pulse rounded-lg bg-muted" />;
   }
 
@@ -59,49 +69,136 @@ export default function AdminHomepagePage() {
     value: AdminSiteConfig[K],
   ) => setDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
 
-  async function handleSave(e: FormEvent) {
-    e.preventDefault();
-    if (!draft || !data?.config) return;
-    setStatus(null);
-    const patch: AdminSiteConfigPatch = {};
-    for (const k of Object.keys(draft) as Array<keyof AdminSiteConfig>) {
-      if (k === "id" || k === "createdAt" || k === "updatedAt") continue;
-      const current = draft[k];
-      const original = data.config[k];
-      const isEqual =
-        current !== null && typeof current === "object"
-          ? JSON.stringify(current) === JSON.stringify(original ?? {})
-          : current === original;
-      if (!isEqual) {
-        (patch as Record<string, unknown>)[k] = current;
-      }
-    }
-    if (Object.keys(patch).length === 0) {
-      setStatus("Nothing to save.");
-      return;
-    }
+  const announcementPatch = buildSiteConfigPatch(draft, baseline, [
+    "announcementEnabled",
+    "announcementText",
+    "announcementCode",
+    "announcementCtaText",
+    "announcementCtaHref",
+  ]);
+  const fallbackHeroPatch = buildSiteConfigPatch(draft, baseline, [
+    "heroEyebrow",
+    "heroHeadline",
+    "heroHighlight",
+    "heroSubtitle",
+    "heroPrimaryLabel",
+    "heroPrimaryHref",
+    "heroSecondaryLabel",
+    "heroSecondaryHref",
+  ]);
+  const carouselPatch = buildSiteConfigPatch(draft, baseline, ["heroSlides"]);
+  const rewardsPatch = buildSiteConfigPatch(draft, baseline, ["rewardTiers"]);
+  const featuredPatch = buildSiteConfigPatch(draft, baseline, [
+    "featuredProductIds",
+  ]);
+  const spotlightPatch = buildSiteConfigPatch(draft, baseline, [
+    "spotlightEnabled",
+    "spotlightEyebrow",
+    "spotlightTitle",
+    "spotlightBody",
+    "spotlightCtaLabel",
+    "spotlightCtaHref",
+  ]);
+
+  async function saveSiteSection(
+    section: string,
+    patch: AdminSiteConfigPatch,
+  ) {
+    if (Object.keys(patch).length === 0) return;
+    setSavingSection(section);
+    setSectionStatus((current) => omitKey(current, section));
     try {
-      await update(patch).unwrap();
-      setStatus("Saved. Homepage refreshed.");
+      const response = await updateSiteConfig(patch).unwrap();
+      const keys = Object.keys(patch) as Array<keyof AdminSiteConfigPatch>;
+      setBaseline((current) => {
+        if (!current) return current;
+        const next = { ...current };
+        for (const key of keys) {
+          (next as unknown as Record<string, unknown>)[key] =
+            response.config[key];
+        }
+        return next;
+      });
+      setSectionStatus((current) => ({
+        ...current,
+        [section]: { message: "Saved and published.", error: false },
+      }));
     } catch (err) {
       const e = err as { data?: { error?: { message?: string } } };
-      setStatus(e.data?.error?.message ?? "Save failed.");
+      setSectionStatus((current) => ({
+        ...current,
+        [section]: {
+          message: e.data?.error?.message ?? "This section could not be saved.",
+          error: true,
+        },
+      }));
+    } finally {
+      setSavingSection(null);
+    }
+  }
+
+  async function saveHomepageContentSection(
+    section: keyof HomepageContent,
+  ) {
+    if (!draft) return;
+    const sectionKey = `homepage-${section}`;
+    setSavingSection(sectionKey);
+    setSectionStatus((current) => omitKey(current, sectionKey));
+    try {
+      const request = {
+        section,
+        value: draft.homepageContent[section],
+      } as AdminHomepageSectionUpdate;
+      const response = await updateHomepageSection(request).unwrap();
+      setBaseline((current) =>
+        current
+          ? {
+              ...current,
+              homepageContent: {
+                ...current.homepageContent,
+                [section]: response.config.homepageContent[section],
+              },
+            }
+          : current,
+      );
+      setSectionStatus((current) => ({
+        ...current,
+        [sectionKey]: { message: "Saved and published.", error: false },
+      }));
+    } catch (err) {
+      const e = err as { data?: { error?: { message?: string } } };
+      setSectionStatus((current) => ({
+        ...current,
+        [sectionKey]: {
+          message: e.data?.error?.message ?? "This section could not be saved.",
+          error: true,
+        },
+      }));
+    } finally {
+      setSavingSection(null);
     }
   }
 
   return (
-    <form onSubmit={handleSave} className="space-y-6">
+    <div className="space-y-6">
       <header className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
         <h2 className="text-2xl font-semibold">Homepage & announcement</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Control storefront banners, imagery, merchandising sections, support
           content, rewards, and featured products without a code deployment.
         </p>
+        <p className="mt-3 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800">
+          Each card saves independently and sends only its changed fields.
+        </p>
       </header>
 
       <Section
         title="Announcement bar"
         description="Yellow strip above the header. Turn off to hide it site-wide."
+        dirty={hasChangedFields(announcementPatch)}
+        saving={savingSection === "announcement"}
+        status={sectionStatus.announcement}
+        onSave={() => saveSiteSection("announcement", announcementPatch)}
       >
         <Toggle
           label="Show announcement bar"
@@ -151,6 +248,10 @@ export default function AdminHomepagePage() {
       <Section
         title="Fallback hero"
         description="Used when no carousel slides are configured. Also keeps old content compatible."
+        dirty={hasChangedFields(fallbackHeroPatch)}
+        saving={savingSection === "fallback-hero"}
+        status={sectionStatus["fallback-hero"]}
+        onSave={() => saveSiteSection("fallback-hero", fallbackHeroPatch)}
       >
         <Field label="Eyebrow">
           <input
@@ -236,6 +337,10 @@ export default function AdminHomepagePage() {
       <Section
         title="Hero carousel slides"
         description="Optional image-backed slides for the homepage hero. Leave empty to use the fallback hero."
+        dirty={hasChangedFields(carouselPatch)}
+        saving={savingSection === "hero-carousel"}
+        status={sectionStatus["hero-carousel"]}
+        onSave={() => saveSiteSection("hero-carousel", carouselPatch)}
       >
         <HeroSlidesEditor
           slides={draft.heroSlides}
@@ -246,6 +351,10 @@ export default function AdminHomepagePage() {
       <Section
         title="Rewards ticker"
         description="Thresholds are in rupees and render below the announcement bar."
+        dirty={hasChangedFields(rewardsPatch)}
+        saving={savingSection === "rewards"}
+        status={sectionStatus.rewards}
+        onSave={() => saveSiteSection("rewards", rewardsPatch)}
       >
         <RewardTiersEditor
           tiers={draft.rewardTiers}
@@ -255,12 +364,20 @@ export default function AdminHomepagePage() {
 
       <HomepageContentEditor
         content={draft.homepageContent}
+        original={baseline.homepageContent}
         onChange={(content) => set("homepageContent", content)}
+        onSave={saveHomepageContentSection}
+        savingSection={savingSection}
+        sectionStatus={sectionStatus}
       />
 
       <Section
         title="Featured products"
         description="Ordered list surfaced on the homepage. Leave empty to show newest products automatically."
+        dirty={hasChangedFields(featuredPatch)}
+        saving={savingSection === "featured-products"}
+        status={sectionStatus["featured-products"]}
+        onSave={() => saveSiteSection("featured-products", featuredPatch)}
       >
         <FeaturedPicker
           selected={draft.featuredProductIds}
@@ -271,6 +388,10 @@ export default function AdminHomepagePage() {
       <Section
         title="Spotlight section"
         description="Callout below the featured grid. Toggle off to hide it entirely."
+        dirty={hasChangedFields(spotlightPatch)}
+        saving={savingSection === "spotlight"}
+        status={sectionStatus.spotlight}
+        onSave={() => saveSiteSection("spotlight", spotlightPatch)}
       >
         <Toggle
           label="Show spotlight"
@@ -327,26 +448,24 @@ export default function AdminHomepagePage() {
         </div>
       </Section>
 
-      <div className="sticky bottom-4 z-20 flex items-center gap-3 rounded-2xl border border-black/10 bg-white/95 p-4 shadow-[0_18px_50px_rgba(23,23,20,0.12)] backdrop-blur-xl">
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
-        >
-          {saving ? "Saving..." : "Save changes"}
-        </button>
-        {status && <span className="text-sm text-muted-foreground">{status}</span>}
-      </div>
-    </form>
+    </div>
   );
 }
 
 function HomepageContentEditor({
   content,
+  original,
   onChange,
+  onSave,
+  savingSection,
+  sectionStatus,
 }: {
   content: HomepageContent;
+  original: HomepageContent;
   onChange: (content: HomepageContent) => void;
+  onSave: (section: keyof HomepageContent) => Promise<void>;
+  savingSection: string | null;
+  sectionStatus: Record<string, { message: string; error: boolean }>;
 }) {
   function updateValueProp<K extends keyof HomepageValueProp>(
     index: number,
@@ -394,6 +513,10 @@ function HomepageContentEditor({
       <Section
         title="Trust strip"
         description="Short customer promises displayed directly below the hero."
+        dirty={valuesDiffer(content.valueProps, original.valueProps)}
+        saving={savingSection === "homepage-valueProps"}
+        status={sectionStatus["homepage-valueProps"]}
+        onSave={() => onSave("valueProps")}
       >
         <Toggle
           label="Show trust strip"
@@ -494,6 +617,10 @@ function HomepageContentEditor({
       <Section
         title="Category artwork"
         description="Control the category section copy, tile order, images, and destinations."
+        dirty={valuesDiffer(content.categories, original.categories)}
+        saving={savingSection === "homepage-categories"}
+        status={sectionStatus["homepage-categories"]}
+        onSave={() => onSave("categories")}
       >
         <Toggle
           label="Show category section"
@@ -614,6 +741,10 @@ function HomepageContentEditor({
       <Section
         title="Featured products presentation"
         description="The products are selected below; these fields control the section heading and CTA."
+        dirty={valuesDiffer(content.featured, original.featured)}
+        saving={savingSection === "homepage-featured"}
+        status={sectionStatus["homepage-featured"]}
+        onSave={() => onSave("featured")}
       >
         <Toggle label="Show featured products" checked={content.featured.enabled} onChange={(enabled) => onChange({ ...content, featured: { ...content.featured, enabled } })} />
         <div className="grid gap-4 sm:grid-cols-2">
@@ -627,6 +758,10 @@ function HomepageContentEditor({
       <Section
         title="Spotlight cards"
         description="Supporting cards displayed beside the spotlight content."
+        dirty={valuesDiffer(content.spotlightBullets, original.spotlightBullets)}
+        saving={savingSection === "homepage-spotlightBullets"}
+        status={sectionStatus["homepage-spotlightBullets"]}
+        onSave={() => onSave("spotlightBullets")}
       >
         {content.spotlightBullets.map((item, index) => (
           <div key={"spotlight-" + index} className="grid gap-3 rounded-xl border border-border p-4 sm:grid-cols-[1fr_2fr_auto]">
@@ -641,6 +776,10 @@ function HomepageContentEditor({
       <Section
         title="Recently viewed"
         description="Customer-specific browsing history shown below featured products."
+        dirty={content.recentlyViewedEnabled !== original.recentlyViewedEnabled}
+        saving={savingSection === "homepage-recentlyViewedEnabled"}
+        status={sectionStatus["homepage-recentlyViewedEnabled"]}
+        onSave={() => onSave("recentlyViewedEnabled")}
       >
         <Toggle label="Show recently viewed products" checked={content.recentlyViewedEnabled} onChange={(recentlyViewedEnabled) => onChange({ ...content, recentlyViewedEnabled })} />
       </Section>
@@ -648,6 +787,10 @@ function HomepageContentEditor({
       <Section
         title="Customer support callout"
         description="Final homepage support section and its action."
+        dirty={valuesDiffer(content.support, original.support)}
+        saving={savingSection === "homepage-support"}
+        status={sectionStatus["homepage-support"]}
+        onSave={() => onSave("support")}
       >
         <Toggle label="Show support callout" checked={content.support.enabled} onChange={(enabled) => onChange({ ...content, support: { ...content.support, enabled } })} />
         <div className="grid gap-4 sm:grid-cols-2">
@@ -663,6 +806,33 @@ function HomepageContentEditor({
       </Section>
     </>
   );
+}
+
+function valuesDiffer(left: unknown, right: unknown) {
+  if (Object.is(left, right)) return false;
+  if (left === null || right === null) return true;
+  if (typeof left !== "object" || typeof right !== "object") return true;
+  return JSON.stringify(left) !== JSON.stringify(right);
+}
+
+function buildSiteConfigPatch(
+  current: AdminSiteConfig,
+  original: AdminSiteConfig,
+  keys: Array<keyof AdminSiteConfigPatch>,
+) {
+  const patch: AdminSiteConfigPatch = {};
+  for (const key of keys) {
+    if (valuesDiffer(current[key], original[key])) {
+      (patch as Record<string, unknown>)[key] = current[key];
+    }
+  }
+  return patch;
+}
+
+function omitKey<T>(current: Record<string, T>, key: string) {
+  const next = { ...current };
+  delete next[key];
+  return next;
 }
 
 function moveItem<T>(items: T[], index: number, direction: -1 | 1) {
@@ -987,19 +1157,68 @@ function Section({
   title,
   description,
   children,
+  dirty,
+  saving,
+  status,
+  onSave,
 }: {
   title: string;
   description?: string;
   children: React.ReactNode;
+  dirty: boolean;
+  saving: boolean;
+  status?: { message: string; error: boolean };
+  onSave: () => void | Promise<void>;
 }) {
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (dirty && !saving) void onSave();
+  }
+
   return (
-    <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
-      <div className="mb-4">
-        <h3 className="font-medium">{title}</h3>
-        {description && <p className="mt-1 text-xs text-muted-foreground">{description}</p>}
+    <form
+      onSubmit={handleSubmit}
+      aria-busy={saving}
+      className="overflow-hidden rounded-2xl border border-black/[0.07] bg-white shadow-[0_10px_35px_rgba(23,23,20,0.04)]"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-black/[0.06] px-5 py-4 sm:px-6">
+        <div>
+          <h3 className="font-semibold tracking-tight">{title}</h3>
+          {description && (
+            <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
+              {description}
+            </p>
+          )}
+        </div>
+        <span
+          className={
+            dirty
+              ? "rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-800"
+              : "rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700"
+          }
+        >
+          {dirty ? "Unsaved" : "Up to date"}
+        </span>
       </div>
-      <div className="space-y-4">{children}</div>
-    </section>
+      <div className="space-y-4 px-5 py-5 sm:px-6">{children}</div>
+      <div className="flex min-h-16 flex-wrap items-center gap-3 border-t border-black/[0.06] bg-[#faf9f6] px-5 py-3 sm:px-6">
+        <button
+          type="submit"
+          disabled={!dirty || saving}
+          className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {saving ? "Saving section…" : "Save this section"}
+        </button>
+        {status && (!dirty || status.error) && (
+          <span
+            role={status.error ? "alert" : "status"}
+            className={status.error ? "text-sm text-red-700" : "text-sm text-emerald-700"}
+          >
+            {status.message}
+          </span>
+        )}
+      </div>
+    </form>
   );
 }
 

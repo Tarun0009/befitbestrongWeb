@@ -120,6 +120,8 @@ export interface BundleWriteInput {
   items: Array<{ variantId: string; quantity: number }>;
 }
 
+export type BundleUpdateInput = Partial<BundleWriteInput>;
+
 export const bundlesApi = createApi({
   reducerPath: "bundlesApi",
   baseQuery: baseQueryWithRefresh,
@@ -145,11 +147,11 @@ export const bundlesApi = createApi({
     }),
     adminUpdateBundle: builder.mutation<
       { bundle: Bundle },
-      { id: string; body: BundleWriteInput }
+      { id: string; body: BundleUpdateInput }
     >({
       query: ({ id, body }) => ({
         url: "/admin/bundles/" + id,
-        method: "PUT",
+        method: "PATCH",
         body,
       }),
       invalidatesTags: (_result, _error, arg) => [

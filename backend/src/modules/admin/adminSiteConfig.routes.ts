@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import {
   getAdminSiteConfig,
+  updateHomepageContentSection,
   updateSiteConfig,
 } from "../siteConfig/siteConfig.service.js";
 import { requireAtLeastOneField, safeHttpUrl } from "../../lib/validation.js";
@@ -98,6 +99,27 @@ const homepageContentSchema = z
   })
   .strict();
 
+const homepageSectionParam = z
+  .object({
+    section: z.enum([
+      "valueProps",
+      "categories",
+      "featured",
+      "recentlyViewedEnabled",
+      "spotlightBullets",
+      "support",
+    ]),
+  })
+  .strict();
+const homepageSectionSchemas = {
+  valueProps: homepageContentSchema.shape.valueProps,
+  categories: homepageContentSchema.shape.categories,
+  featured: homepageContentSchema.shape.featured,
+  recentlyViewedEnabled: homepageContentSchema.shape.recentlyViewedEnabled,
+  spotlightBullets: homepageContentSchema.shape.spotlightBullets,
+  support: homepageContentSchema.shape.support,
+};
+
 const patchBody = requireAtLeastOneField(
   z
   .object({
@@ -161,6 +183,18 @@ router.patch("/site-config", async (req, res, next) => {
   try {
     const patch = patchBody.parse(req.body);
     const config = await updateSiteConfig(patch);
+    res.json({ config });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch("/site-config/homepage/:section", async (req, res, next) => {
+  try {
+    const { section } = homepageSectionParam.parse(req.params);
+    const request = z.object({ value: z.unknown() }).strict().parse(req.body);
+    const value = homepageSectionSchemas[section].parse(request.value);
+    const config = await updateHomepageContentSection(section, value);
     res.json({ config });
   } catch (err) {
     next(err);

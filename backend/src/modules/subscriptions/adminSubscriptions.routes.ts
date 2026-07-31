@@ -37,15 +37,6 @@ router.post("/subscription-plans", async (req, res, next) => {
   }
 });
 
-router.put("/subscription-plans/:id", async (req, res, next) => {
-  try {
-    const id = z.string().cuid().parse(req.params.id);
-    res.json(await updateSubscriptionPlan(id, updateBody.parse(req.body)));
-  } catch (error) {
-    next(error);
-  }
-});
-
 router.patch("/subscription-plans/:id", async (req, res, next) => {
   try {
     const id = z.string().cuid().parse(req.params.id);

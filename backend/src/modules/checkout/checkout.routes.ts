@@ -24,6 +24,7 @@ router.get(
   (_req, res) => {
   res.json({
     paymentsEnabled: env.PAYMENTS_ENABLED,
+    paymentMethods: ["PREPAID"],
     razorpayConfigured: isRazorpayConfigured(),
     razorpayKeyId: env.RAZORPAY_KEY_ID ?? null,
     devMode: env.NODE_ENV !== "production",
@@ -57,7 +58,7 @@ const addressBody = z.object({
 const sessionBody = z.object({
   email: z.string().trim().email().optional(),
   couponCode: z.string().trim().max(32).optional().nullable(),
-  paymentMethod: z.enum(["PREPAID", "COD"]).default("PREPAID"),
+  paymentMethod: z.literal("PREPAID").default("PREPAID"),
   address: addressBody,
 }).strict();
 

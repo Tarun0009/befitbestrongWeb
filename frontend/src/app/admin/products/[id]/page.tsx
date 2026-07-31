@@ -98,7 +98,7 @@ export default function AdminEditProductPage() {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-6">
-          <CoreFields product={product} />
+          <CoreFields key={product.id} product={product} />
           <VariantEditor product={product} />
         </div>
 
@@ -129,7 +129,7 @@ export default function AdminEditProductPage() {
 
 function CoreFields({ product }: { product: AdminProductDetail }) {
   const { data: cats } = useGetCategoriesQuery();
-  const [update, { isLoading }] = useAdminUpdateProductMutation();
+  const [update] = useAdminUpdateProductMutation();
 
   const [name, setName] = useState(product.name);
   const [description, setDescription] = useState(product.description);
@@ -142,72 +142,106 @@ function CoreFields({ product }: { product: AdminProductDetail }) {
   );
   const [dispatchHint, setDispatchHint] = useState(product.dispatchHint ?? "");
   const [active, setActive] = useState(product.active);
-  const [status, setStatus] = useState<string | null>(null);
+  const [baseline, setBaseline] = useState<ProductEditableValues>(() =>
+    editableProductValues(product),
+  );
+  const [savingSection, setSavingSection] = useState<string | null>(null);
+  const [sectionStatus, setSectionStatus] = useState<
+    Record<string, { message: string; error: boolean }>
+  >({});
 
-  const currentValues = {
-    name,
-    description,
-    categoryId,
+  const detailsPatch = buildChangedFields(
+    {
+      name: name.trim(),
+      description: description.trim(),
+      categoryId,
+    },
+    {
+      name: baseline.name,
+      description: baseline.description,
+      categoryId: baseline.categoryId,
+    },
+  );
+  const pricingPatch = buildChangedFields(
+    {
     basePrice: rupeesToPaise(basePrice) ?? -1,
     compareAtPrice: rupeesToPaise(compareAtPrice),
     dispatchHint: dispatchHint.trim() || null,
-    active,
-  };
-  const originalValues = {
-    name: product.name,
-    description: product.description,
-    categoryId: product.categoryId,
-    basePrice: product.basePrice,
-    compareAtPrice: product.compareAtPrice,
-    dispatchHint: product.dispatchHint,
-    active: product.active,
-  };
-  const productPatch = buildChangedFields(currentValues, originalValues);
-  const dirty = hasChangedFields(productPatch);
+    },
+    {
+      basePrice: baseline.basePrice,
+      compareAtPrice: baseline.compareAtPrice,
+      dispatchHint: baseline.dispatchHint,
+    },
+  );
+  const visibilityPatch = buildChangedFields(
+    { active },
+    { active: baseline.active },
+  );
 
-  // Reset local form state when we navigate to a different product.
-  useEffect(() => {
-    setName(product.name);
-    setDescription(product.description);
-    setCategoryId(product.categoryId);
-    setBasePrice((product.basePrice / 100).toFixed(2));
-    setCompareAtPrice(
-      product.compareAtPrice ? (product.compareAtPrice / 100).toFixed(2) : "",
-    );
-    setDispatchHint(product.dispatchHint ?? "");
-    setActive(product.active);
-  }, [product]);
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setStatus(null);
-    const priceInPaise = rupeesToPaise(basePrice);
-    if (priceInPaise === null || priceInPaise < 0) {
-      setStatus("Base price must be a positive number.");
-      return;
+  async function saveSection(
+    section: "details" | "pricing" | "visibility",
+    patch: Partial<ProductEditableValues>,
+  ) {
+    if (!hasChangedFields(patch)) return;
+    if (section === "pricing") {
+      const priceInPaise = rupeesToPaise(basePrice);
+      if (priceInPaise === null || priceInPaise < 0) {
+        setSectionStatus((current) => ({
+          ...current,
+          pricing: { message: "Base price must be a positive number.", error: true },
+        }));
+        return;
+      }
+      const mrpInPaise = rupeesToPaise(compareAtPrice);
+      if (mrpInPaise !== null && mrpInPaise <= priceInPaise) {
+        setSectionStatus((current) => ({
+          ...current,
+          pricing: {
+            message: "MRP should be higher than the base price, or left empty.",
+            error: true,
+          },
+        }));
+        return;
+      }
     }
-    const mrpInPaise = rupeesToPaise(compareAtPrice);
-    if (mrpInPaise !== null && mrpInPaise <= priceInPaise) {
-      setStatus("MRP should be higher than the base price, or left empty.");
-      return;
-    }
-    if (!dirty) {
-      setStatus("Nothing to save.");
-      return;
-    }
+    setSavingSection(section);
+    setSectionStatus((current) => {
+      const next = { ...current };
+      delete next[section];
+      return next;
+    });
     try {
-      await update({ id: product.id, body: productPatch }).unwrap();
-      setStatus("Saved.");
+      await update({ id: product.id, body: patch }).unwrap();
+      setBaseline((current) => ({ ...current, ...patch }));
+      setSectionStatus((current) => ({
+        ...current,
+        [section]: { message: "Saved successfully.", error: false },
+      }));
     } catch (err) {
       const e = err as { data?: { error?: { message?: string } } };
-      setStatus(e.data?.error?.message ?? "Save failed.");
+      setSectionStatus((current) => ({
+        ...current,
+        [section]: {
+          message: e.data?.error?.message ?? "This section could not be saved.",
+          error: true,
+        },
+      }));
+    } finally {
+      setSavingSection(null);
     }
   }
 
   return (
-    <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
-      <h3 className="font-medium">Details</h3>
-      <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+    <div className="space-y-6">
+      <ProductEditSection
+        title="Basic information"
+        description="Customer-facing product name, description, and catalog placement."
+        dirty={hasChangedFields(detailsPatch)}
+        saving={savingSection === "details"}
+        status={sectionStatus.details}
+        onSave={() => saveSection("details", detailsPatch)}
+      >
         <Field label="Name">
           <input
             required
@@ -225,20 +259,30 @@ function CoreFields({ product }: { product: AdminProductDetail }) {
             className={inputCls}
           />
         </Field>
+        <Field label="Category">
+          <select
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+            className={inputCls}
+          >
+            {cats?.items.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </ProductEditSection>
+
+      <ProductEditSection
+        title="Pricing & dispatch"
+        description="Only price and fulfillment guidance are updated from this card."
+        dirty={hasChangedFields(pricingPatch)}
+        saving={savingSection === "pricing"}
+        status={sectionStatus.pricing}
+        onSave={() => saveSection("pricing", pricingPatch)}
+      >
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Category">
-            <select
-              value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value)}
-              className={inputCls}
-            >
-              {cats?.items.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </Field>
           <Field label="Base price (₹)">
             <input
               required
@@ -271,29 +315,93 @@ function CoreFields({ product }: { product: AdminProductDetail }) {
             />
           </Field>
         </div>
-        <label className="flex items-center gap-2 text-sm">
+      </ProductEditSection>
+
+      <ProductEditSection
+        title="Storefront visibility"
+        description="Publish or hide this product without resubmitting its content, prices, variants, or images."
+        dirty={hasChangedFields(visibilityPatch)}
+        saving={savingSection === "visibility"}
+        status={sectionStatus.visibility}
+        onSave={() => saveSection("visibility", visibilityPatch)}
+      >
+        <label className="flex items-center justify-between gap-4 rounded-xl border border-black/[0.08] bg-[#faf9f6] p-4 text-sm">
+          <span>
+            <span className="block font-semibold">Visible on storefront</span>
+            <span className="mt-1 block text-xs text-muted-foreground">
+              Hidden products remain available in historical orders.
+            </span>
+          </span>
           <input
             type="checkbox"
             checked={active}
             onChange={(e) => setActive(e.target.checked)}
+            className="h-5 w-5 accent-primary"
           />
-          Active (visible on storefront)
         </label>
+      </ProductEditSection>
+    </div>
+  );
+}
 
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={!dirty || isLoading}
-            className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:opacity-90 disabled:opacity-60"
-          >
-            {isLoading ? "Saving..." : "Save changes"}
-          </button>
-          {status && (
-            <span className="text-sm text-muted-foreground">{status}</span>
-          )}
-        </div>
-      </form>
-    </section>
+interface ProductEditableValues {
+  name: string;
+  description: string;
+  categoryId: string;
+  basePrice: number;
+  compareAtPrice: number | null;
+  dispatchHint: string | null;
+  active: boolean;
+}
+
+function editableProductValues(product: AdminProductDetail): ProductEditableValues {
+  return {
+    name: product.name,
+    description: product.description,
+    categoryId: product.categoryId,
+    basePrice: product.basePrice,
+    compareAtPrice: product.compareAtPrice,
+    dispatchHint: product.dispatchHint,
+    active: product.active,
+  };
+}
+
+function ProductEditSection({
+  title,
+  description,
+  dirty,
+  saving,
+  status,
+  onSave,
+  children,
+}: {
+  title: string;
+  description: string;
+  dirty: boolean;
+  saving: boolean;
+  status?: { message: string; error: boolean };
+  onSave: () => void | Promise<void>;
+  children: React.ReactNode;
+}) {
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (dirty && !saving) void onSave();
+      }}
+      aria-busy={saving}
+      className="overflow-hidden rounded-2xl border border-black/[0.07] bg-white shadow-[0_10px_35px_rgba(23,23,20,0.04)]"
+    >
+      <div className="flex items-start justify-between gap-3 border-b border-black/[0.06] px-5 py-4 sm:px-6">
+        <div><h3 className="font-semibold">{title}</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p></div>
+        <span className={dirty ? "rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-800" : "rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700"}>{dirty ? "Unsaved" : "Up to date"}</span>
+      </div>
+      <div className="space-y-4 px-5 py-5 sm:px-6">{children}</div>
+      <div className="flex min-h-16 flex-wrap items-center gap-3 border-t border-black/[0.06] bg-[#faf9f6] px-5 py-3 sm:px-6">
+        <button type="submit" disabled={!dirty || saving} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40">{saving ? "Saving section…" : "Save this section"}</button>
+        {status && (!dirty || status.error) && <span role={status.error ? "alert" : "status"} className={status.error ? "text-sm text-red-700" : "text-sm text-emerald-700"}>{status.message}</span>}
+      </div>
+    </form>
   );
 }
 

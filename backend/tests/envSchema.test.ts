@@ -98,7 +98,7 @@ describe("backend environment policy", () => {
     expect(backendEnvSchema.safeParse(deployedBase).success).toBe(true);
   });
 
-  it("allows deployed COD-only configuration without Razorpay credentials", () => {
+  it("allows a deployed checkout-maintenance configuration without Razorpay credentials", () => {
     expect(
       backendEnvSchema.safeParse({
         ...deployedBase,

@@ -76,15 +76,42 @@ test("guest prepaid checkout reaches Razorpay and completes from a signed webhoo
         response.request().method() === "GET",
     );
     await page.getByRole("button", { name: "Check" }).click();
-    expect((await serviceabilityResponsePromise).status()).toBe(200);
+    const serviceabilityResponse = await serviceabilityResponsePromise;
+    expect(serviceabilityResponse.status()).toBe(200);
+    await expect(serviceabilityResponse.json()).resolves.toMatchObject({
+      serviceable: true,
+      codEnabled: false,
+    });
+
+    const rejectedCodCheckout = await context.request.post(
+      `${backendUrl}/checkout/session`,
+      {
+        headers: { "Idempotency-Key": runId.replaceAll("-", "") },
+        data: {
+          email: fixture.email,
+          paymentMethod: "COD",
+          address: {
+            fullName: "Rejected COD Guest",
+            phone: "9999999999",
+            line1: "Sector 18 prepaid test",
+            city: fixture.city,
+            state: "Uttar Pradesh",
+            pincode: fixture.pincode,
+            country: "IN",
+          },
+        },
+      },
+    );
+    expect(rejectedCodCheckout.status()).toBe(400);
     await expect(
       page.getByText(`Delivery is available across India · ${fixture.city}`),
     ).toBeVisible();
 
     await page.getByRole("button", { name: "Continue to review" }).click();
-    const prepaidOption = page.getByRole("button", { name: /Pay online/ });
-    await expect(prepaidOption).toBeEnabled();
-    await prepaidOption.click();
+    await expect(page.getByText("Pay online", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Cash on delivery/ }),
+    ).toHaveCount(0);
     await expect(
       page.getByText("Development mode: payment will be simulated locally."),
     ).toHaveCount(0);

@@ -30,7 +30,7 @@ export default function TermsPage() {
         {
           title: "Payments and orders",
           paragraphs: [
-            "Online payments are processed by the configured payment provider. Cash on delivery, where enabled, is limited by PIN code, order value, stock, and risk rules shown during checkout. Do not treat a payment-provider screen alone as confirmation until the order status is updated.",
+            "Orders currently require online payment through the configured payment provider. Cash on delivery is not offered. Do not treat a payment-provider screen alone as confirmation until the order status is updated.",
           ],
         },
         {
