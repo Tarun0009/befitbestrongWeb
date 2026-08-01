@@ -81,6 +81,37 @@ export default function NewProductPage() {
       setError("MRP should be higher than the base price, or left empty.");
       return;
     }
+    if (variants.some((option) => !option.sku.trim())) {
+      setError("Every product option needs a unique SKU / inventory code.");
+      return;
+    }
+    const normalizedSkus = variants.map((option) => option.sku.trim().toLowerCase());
+    if (new Set(normalizedSkus).size !== normalizedSkus.length) {
+      setError("Each product option must use a different SKU.");
+      return;
+    }
+    const hasInvalidInventory = variants.some((option) => {
+      const optionPrice = rupeesToPaise(option.price || basePrice);
+      const stock = Number(option.stock);
+      return (
+        optionPrice === null ||
+        optionPrice < 0 ||
+        !option.stock.trim() ||
+        !Number.isInteger(stock) ||
+        stock < 0
+      );
+    });
+    if (hasInvalidInventory) {
+      setError("Check each option's selling price and enter stock as a whole number.");
+      return;
+    }
+    const preparedOptions = variants.map((option) => ({
+      sku: option.sku.trim(),
+      size: option.size.trim() || undefined,
+      color: option.color.trim() || undefined,
+      price: rupeesToPaise(option.price || basePrice) ?? priceInPaise,
+      stock: Number(option.stock),
+    }));
     try {
       const res = await createProduct({
         name: name.trim(),
@@ -91,15 +122,7 @@ export default function NewProductPage() {
         dispatchHint: dispatchHint.trim() || null,
         active: true,
         images: imageUrl.trim() ? [{ url: imageUrl.trim(), alt: name.trim() }] : [],
-        variants: variants
-          .filter((v) => v.sku.trim())
-          .map((v) => ({
-            sku: v.sku.trim(),
-            size: v.size.trim() || undefined,
-            color: v.color.trim() || undefined,
-            price: rupeesToPaise(v.price || basePrice) ?? priceInPaise,
-            stock: Number(v.stock) || 0,
-          })),
+        variants: preparedOptions,
       }).unwrap();
       if (imageFiles[0] && mediaConfiguration?.configured) {
         setUploadingImage(true);
@@ -237,30 +260,168 @@ export default function NewProductPage() {
         </section>
 
         <section className="rounded-2xl border border-black/[0.07] bg-[#faf9f6] p-4 sm:p-5">
-          <div className="flex items-center justify-between">
-            <h3 className="font-medium">Variants</h3>
-            <button type="button" onClick={() => setVariants((prev) => [...prev, emptyVariant()])} className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted">
-              Add variant
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                Inventory
+              </p>
+              <h3 className="mt-1 font-semibold">Product options & stock</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => setVariants((prev) => [...prev, emptyVariant()])}
+              disabled={variants.length >= 100}
+              className="rounded-lg border border-border bg-white px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-40"
+            >
+              Add another option
             </button>
           </div>
 
-          <p className="mt-2 text-xs text-muted-foreground">
-            SKU must be unique across the catalog. Price defaults to the product&apos;s base price if you leave it blank.
-          </p>
+          <div className="mt-4 rounded-xl border border-primary/20 bg-primary/[0.07] px-3.5 py-3 text-xs leading-5 text-muted-foreground">
+            <p>
+              <strong className="text-foreground">What is a product option?</strong>{" "}
+              It is one version a customer can buy, such as 1 kg / Chocolate or
+              Size M / Black.
+            </p>
+            <p className="mt-1">
+              If this product has only one version, keep one option and leave
+              size and colour/flavour empty. Customers will see it as Standard.
+            </p>
+          </div>
 
           <div className="mt-4 space-y-3">
-            {variants.map((v, i) => (
-              <div key={v.key} className="grid gap-2 sm:grid-cols-[1.2fr_1fr_1fr_1fr_1fr_auto]">
-                <input placeholder="SKU" value={v.sku} onChange={(e) => setVariants((prev) => prev.map((row, j) => j === i ? { ...row, sku: e.target.value } : row))} className={inputCls} />
-                <input placeholder="Size" value={v.size} onChange={(e) => setVariants((prev) => prev.map((row, j) => j === i ? { ...row, size: e.target.value } : row))} className={inputCls} />
-                <input placeholder="Color" value={v.color} onChange={(e) => setVariants((prev) => prev.map((row, j) => j === i ? { ...row, color: e.target.value } : row))} className={inputCls} />
-                <input placeholder="Price ₹" type="number" min={0} step="0.01" value={v.price} onChange={(e) => setVariants((prev) => prev.map((row, j) => j === i ? { ...row, price: e.target.value } : row))} className={inputCls} />
-                <input placeholder="Stock" type="number" min={0} value={v.stock} onChange={(e) => setVariants((prev) => prev.map((row, j) => j === i ? { ...row, stock: e.target.value } : row))} className={inputCls} />
-                <button type="button" onClick={() => setVariants((prev) => prev.length === 1 ? prev : prev.filter((_, j) => j !== i))} disabled={variants.length === 1} className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40" aria-label="Remove variant">
-                  ×
-                </button>
-              </div>
-            ))}
+            {variants.map((option, index) => {
+              const optionName =
+                [option.size.trim(), option.color.trim()].filter(Boolean).join(" / ") ||
+                "Standard option";
+              return (
+                <div
+                  key={option.key}
+                  className="rounded-xl border border-black/[0.08] bg-white p-4"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground">
+                        Option {index + 1}
+                      </p>
+                      <p className="text-sm font-semibold">{optionName}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setVariants((current) =>
+                          current.length === 1
+                            ? current
+                            : current.filter((_, itemIndex) => itemIndex !== index),
+                        )
+                      }
+                      disabled={variants.length === 1}
+                      title={
+                        variants.length === 1
+                          ? "Every active product needs at least one option."
+                          : "Remove this option"
+                      }
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                    <Field label="SKU / inventory code">
+                      <input
+                        required
+                        placeholder="Example: BFS-WHEY-1KG"
+                        value={option.sku}
+                        onChange={(event) =>
+                          setVariants((current) =>
+                            current.map((row, itemIndex) =>
+                              itemIndex === index
+                                ? { ...row, sku: event.target.value }
+                                : row,
+                            ),
+                          )
+                        }
+                        className={inputCls}
+                      />
+                    </Field>
+                    <Field label="Size / pack (optional)">
+                      <input
+                        placeholder="1 kg, M, 10 kg"
+                        value={option.size}
+                        onChange={(event) =>
+                          setVariants((current) =>
+                            current.map((row, itemIndex) =>
+                              itemIndex === index
+                                ? { ...row, size: event.target.value }
+                                : row,
+                            ),
+                          )
+                        }
+                        className={inputCls}
+                      />
+                    </Field>
+                    <Field label="Colour / flavour (optional)">
+                      <input
+                        placeholder="Black, Chocolate"
+                        value={option.color}
+                        onChange={(event) =>
+                          setVariants((current) =>
+                            current.map((row, itemIndex) =>
+                              itemIndex === index
+                                ? { ...row, color: event.target.value }
+                                : row,
+                            ),
+                          )
+                        }
+                        className={inputCls}
+                      />
+                    </Field>
+                    <Field label="Selling price (₹)">
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        placeholder={basePrice ? `Base price ₹${basePrice}` : "Uses base price"}
+                        value={option.price}
+                        onChange={(event) =>
+                          setVariants((current) =>
+                            current.map((row, itemIndex) =>
+                              itemIndex === index
+                                ? { ...row, price: event.target.value }
+                                : row,
+                            ),
+                          )
+                        }
+                        className={inputCls}
+                      />
+                    </Field>
+                    <Field label="Available stock">
+                      <input
+                        required
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={option.stock}
+                        onChange={(event) =>
+                          setVariants((current) =>
+                            current.map((row, itemIndex) =>
+                              itemIndex === index
+                                ? { ...row, stock: event.target.value }
+                                : row,
+                            ),
+                          )
+                        }
+                        className={inputCls}
+                      />
+                    </Field>
+                  </div>
+                  <p className="mt-3 text-[11px] text-muted-foreground">
+                    SKU is an internal inventory code and must be unique. A blank
+                    option price uses the product&apos;s base price.
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </section>
 

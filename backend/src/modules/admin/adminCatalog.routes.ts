@@ -153,18 +153,29 @@ router.get("/products", async (req, res, next) => {
         page: z.coerce.number().int().positive().default(1),
         limit: z.coerce.number().int().positive().max(100).default(20),
         search: z.string().trim().max(120).optional(),
+        ids: z
+          .string()
+          .trim()
+          .min(1)
+          .max(400)
+          .transform((value) => value.split(","))
+          .pipe(z.array(z.string().cuid()).min(1).max(12))
+          .optional(),
       })
       .strict()
       .parse(req.query);
 
-    const where = q.search
-      ? {
-          OR: [
-            { name: { contains: q.search, mode: "insensitive" as const } },
-            { slug: { contains: q.search, mode: "insensitive" as const } },
-          ],
-        }
-      : {};
+    const where = {
+      ...(q.ids ? { id: { in: q.ids } } : {}),
+      ...(q.search
+        ? {
+            OR: [
+              { name: { contains: q.search, mode: "insensitive" as const } },
+              { slug: { contains: q.search, mode: "insensitive" as const } },
+            ],
+          }
+        : {}),
+    };
 
     const [items, total] = await Promise.all([
       prisma.product.findMany({
@@ -206,6 +217,13 @@ router.get("/products", async (req, res, next) => {
 router.post("/products", async (req, res, next) => {
   try {
     const body = productBody.parse(req.body);
+    if (body.active && body.variants.length === 0) {
+      throw new HttpError(
+        400,
+        "product_option_required",
+        "An active product needs at least one inventory option",
+      );
+    }
     if (body.images.length > getProductMediaConfiguration().maxImagesPerProduct) {
       throw new HttpError(400, "image_limit_reached", "Too many product images");
     }
@@ -262,6 +280,24 @@ router.patch("/products/:id", async (req, res, next) => {
   try {
     const id = z.string().cuid().parse(req.params.id);
     const body = productPatchBody.parse(req.body);
+    if (body.active === true) {
+      const productState = await prisma.product.findUnique({
+        where: { id },
+        select: {
+          _count: { select: { variants: true } },
+        },
+      });
+      if (!productState) {
+        throw new HttpError(404, "product_not_found", "Product not found");
+      }
+      if (productState._count.variants === 0) {
+        throw new HttpError(
+          409,
+          "product_option_required",
+          "Add an inventory option before publishing this product",
+        );
+      }
+    }
     const product = await prisma.product.update({
       where: { id },
       data: {
@@ -359,8 +395,32 @@ router.patch("/variants/:variantId", async (req, res, next) => {
 router.delete("/variants/:variantId", async (req, res, next) => {
   try {
     const variantId = z.string().cuid().parse(req.params.variantId);
-    const variant = await prisma.productVariant.delete({
-      where: { id: variantId },
+    const variant = await prisma.$transaction(async (tx) => {
+      const current = await tx.productVariant.findUnique({
+        where: { id: variantId },
+        select: {
+          id: true,
+          productId: true,
+          product: {
+            select: {
+              active: true,
+              _count: { select: { variants: true } },
+            },
+          },
+        },
+      });
+      if (!current) {
+        throw new HttpError(404, "variant_not_found", "Product option not found");
+      }
+      if (current.product.active && current.product._count.variants <= 1) {
+        throw new HttpError(
+          409,
+          "product_option_required",
+          "An active product must keep at least one inventory option",
+        );
+      }
+      await tx.productVariant.delete({ where: { id: variantId } });
+      return current;
     });
     await invalidateCatalog(variant.productId);
     res.status(204).end();

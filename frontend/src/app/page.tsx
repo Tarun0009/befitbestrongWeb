@@ -20,34 +20,36 @@ const RecentlyViewedRail = dynamic(
     ),
   { ssr: false },
 );
+const EMPTY_FEATURED_PRODUCT_IDS: string[] = [];
 
 export default function HomePage() {
   const { data: config } = useGetSiteConfigQuery();
   const { data: cats } = useGetCategoriesQuery();
-  const { data: recent, isLoading: productsLoading } = useGetProductsQuery({ limit: 12 });
+  const featuredIds = config?.featuredProductIds ?? EMPTY_FEATURED_PRODUCT_IDS;
+  const { data: featuredProducts, isLoading: productsLoading } =
+    useGetProductsQuery(
+      { ids: featuredIds.join(","), limit: 12 },
+      { skip: featuredIds.length === 0 },
+    );
 
   const featured = useMemo<CatalogListItem[]>(() => {
-    if (!recent) return [];
-    const featuredIds = config?.featuredProductIds ?? [];
-    if (featuredIds.length === 0) return recent.items.slice(0, 12);
-    const byId = new Map(recent.items.map((p) => [p.id, p]));
-    const ordered = featuredIds
+    if (!featuredProducts) return [];
+    const byId = new Map(featuredProducts.items.map((p) => [p.id, p]));
+    return featuredIds
       .map((id) => byId.get(id))
       .filter((p): p is CatalogListItem => Boolean(p));
-    const filler = recent.items.filter((p) => !featuredIds.includes(p.id));
-    return [...ordered, ...filler].slice(0, 12);
-  }, [config, recent]);
+  }, [featuredIds, featuredProducts]);
 
-  const fallbackHeroImage = featured.find((p) => p.image?.url)?.image?.url;
   const spotlight = config?.spotlight;
   const homepage = config?.homepage ?? DEFAULT_HOMEPAGE_CONTENT;
+  const showFeatured =
+    homepage.featured.enabled &&
+    featuredIds.length > 0 &&
+    (productsLoading || featured.length > 0);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <HeroCarousel
-        config={config}
-        fallbackImage={fallbackHeroImage}
-      />
+      <HeroCarousel config={config} />
 
       {homepage.valueProps.enabled && homepage.valueProps.items.length > 0 && (
         <section className="border-b border-border bg-muted/40">
@@ -132,7 +134,7 @@ export default function HomePage() {
         </section>
       )}
 
-      {homepage.featured.enabled && (
+      {showFeatured && (
         <section className="border-y border-border bg-muted/35">
         <div className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
           <div className="flex flex-wrap items-end justify-between gap-4">

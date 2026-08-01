@@ -16,6 +16,14 @@ const PUBLIC_DETAIL_CACHE_CONTROL =
 router.use(rateLimit({ keyPrefix: "products", ...rateLimitPolicies.public }));
 
 const listQuery = z.object({
+  ids: z
+    .string()
+    .trim()
+    .min(1)
+    .max(400)
+    .transform((value) => value.split(","))
+    .pipe(z.array(z.string().cuid()).min(1).max(12))
+    .optional(),
   category: z.string().min(1).optional(),
   minPrice: z.coerce.number().int().nonnegative().optional(),
   maxPrice: z.coerce.number().int().nonnegative().optional(),
@@ -27,6 +35,7 @@ router.get("/", async (req, res, next) => {
   try {
     const q = listQuery.parse(req.query);
     const result = await listProducts({
+      productIds: q.ids,
       categorySlug: q.category,
       minPrice: q.minPrice,
       maxPrice: q.maxPrice,

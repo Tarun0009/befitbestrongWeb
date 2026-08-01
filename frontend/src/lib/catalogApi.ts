@@ -127,6 +127,7 @@ export interface ProductListFilters {
   maxPrice?: number;
   page?: number;
   limit?: number;
+  ids?: string;
 }
 
 export interface AdminProductRow {
@@ -282,7 +283,7 @@ export const catalogApi = createApi({
         page: number;
         totalPages: number;
       },
-      { page?: number; search?: string; limit?: number }
+      { page?: number; search?: string; limit?: number; ids?: string }
     >({
       query: (params) => ({ url: "/admin/products", params }),
       providesTags: ["AdminProducts"],

@@ -64,7 +64,7 @@ const navGroups: NavGroup[] = [
       {
         href: "/admin/products",
         label: "Products",
-        description: "Manage catalog items, pricing, variants, and visibility.",
+        description: "Manage catalog items, pricing, product options, and visibility.",
         icon: Package,
       },
       {

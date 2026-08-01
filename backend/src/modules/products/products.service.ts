@@ -9,6 +9,7 @@ export const CATALOG_LIST_TAG = "catalog:list";
 export const productTag = (productId: string) => `catalog:product:${productId}`;
 
 export interface ListFilters {
+  productIds?: string[];
   categorySlug?: string;
   minPrice?: number;
   maxPrice?: number;
@@ -26,6 +27,9 @@ export async function listProducts(filters: ListFilters) {
     async () => {
       const where = {
         active: true,
+        ...(filters.productIds
+          ? { id: { in: filters.productIds } }
+          : {}),
         ...(filters.categorySlug
           ? { category: { slug: filters.categorySlug } }
           : {}),

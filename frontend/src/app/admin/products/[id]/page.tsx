@@ -319,7 +319,7 @@ function CoreFields({ product }: { product: AdminProductDetail }) {
 
       <ProductEditSection
         title="Storefront visibility"
-        description="Publish or hide this product without resubmitting its content, prices, variants, or images."
+        description="Publish or hide this product without resubmitting its content, product options, prices, or images."
         dirty={hasChangedFields(visibilityPatch)}
         saving={savingSection === "visibility"}
         status={sectionStatus.visibility}
@@ -407,10 +407,18 @@ function ProductEditSection({
 
 // ------------- Variant editor -------------
 
+function productOptionLabel(
+  size: string | null | undefined,
+  color: string | null | undefined,
+): string {
+  return [size, color].filter(Boolean).join(" / ") || "Standard option";
+}
+
 function VariantEditor({ product }: { product: AdminProductDetail }) {
   const [createVariant, { isLoading: creating }] =
     useAdminCreateVariantMutation();
-  const [deleteVariant, { isLoading: deleting }] = useAdminDeleteVariantMutation();
+  const [deleteVariant, { isLoading: deleting }] =
+    useAdminDeleteVariantMutation();
 
   const [draft, setDraft] = useState({
     sku: "",
@@ -424,10 +432,24 @@ function VariantEditor({ product }: { product: AdminProductDetail }) {
   async function handleAdd(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    const price = rupeesToPaise(
+      draft.price.trim() || String(product.basePrice / 100),
+    );
+    const stock = Number(draft.stock);
+
     if (!draft.sku.trim()) {
-      setError("SKU is required.");
+      setError("Enter a unique SKU / inventory code.");
       return;
     }
+    if (price === null || price < 0) {
+      setError("Enter a valid non-negative selling price.");
+      return;
+    }
+    if (!draft.stock.trim() || !Number.isInteger(stock) || stock < 0) {
+      setError("Available stock must be a non-negative whole number.");
+      return;
+    }
+
     try {
       await createVariant({
         productId: product.id,
@@ -435,101 +457,151 @@ function VariantEditor({ product }: { product: AdminProductDetail }) {
           sku: draft.sku.trim(),
           size: draft.size.trim() || undefined,
           color: draft.color.trim() || undefined,
-          price: Math.round(
-            Number(draft.price || product.basePrice / 100) * 100,
-          ),
-          stock: Number(draft.stock) || 0,
+          price,
+          stock,
         },
       }).unwrap();
       setDraft({ sku: "", size: "", color: "", price: "", stock: "0" });
     } catch (err) {
       const e = err as { data?: { error?: { message?: string } } };
-      setError(e.data?.error?.message ?? "Couldn't create variant.");
+      setError(e.data?.error?.message ?? "Couldn't create this product option.");
     }
   }
 
   async function handleDelete(variantId: string) {
-    if (!confirm("Delete this variant?")) return;
+    if (product.active && product.variants.length <= 1) {
+      alert("An active product must keep at least one option. Hide the product or add another option first.");
+      return;
+    }
+    if (!confirm("Delete this product option? Customers will no longer be able to buy it.")) {
+      return;
+    }
     try {
       await deleteVariant({ variantId, productId: product.id }).unwrap();
     } catch (err) {
       const e = err as { data?: { error?: { message?: string } } };
-      alert(e.data?.error?.message ?? "Couldn't delete variant.");
+      alert(e.data?.error?.message ?? "Couldn't delete this product option.");
     }
   }
 
+  const canDeleteOption = !product.active || product.variants.length > 1;
+
   return (
     <section className="rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_10px_35px_rgba(23,23,20,0.04)] sm:p-6">
-      <h3 className="font-medium">Variants</h3>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Each variant is a purchasable SKU. Stock is decremented at checkout.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            Inventory
+          </p>
+          <h3 className="mt-1 font-semibold">Product options & stock</h3>
+        </div>
+        <span className="rounded-full bg-[#f2f0e9] px-3 py-1 text-xs font-semibold text-muted-foreground">
+          {product.variants.length} {product.variants.length === 1 ? "option" : "options"}
+        </span>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-primary/20 bg-primary/[0.07] px-3.5 py-3 text-xs leading-5 text-muted-foreground">
+        <p>
+          Each option is one version customers can purchase—for example 1 kg /
+          Chocolate or Size M / Black. For a product with no choices, keep one
+          option with size and colour/flavour blank; it is shown as Standard.
+        </p>
+      </div>
 
       {product.variants.length === 0 ? (
-        <p className="mt-4 text-sm text-muted-foreground">No variants yet.</p>
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-sm text-amber-900">
+          This product cannot be added to cart until it has at least one
+          inventory option.
+        </div>
       ) : (
-        <ul className="mt-4 space-y-2">
-          {product.variants.map((v) => (
+        <ul className="mt-4 space-y-3">
+          {product.variants.map((variant) => (
             <VariantRow
-              key={v.id}
-              variant={v}
+              key={variant.id}
+              variant={variant}
               productId={product.id}
-              onDelete={() => handleDelete(v.id)}
+              onDelete={() => handleDelete(variant.id)}
               deleting={deleting}
+              canDelete={canDeleteOption}
             />
           ))}
         </ul>
       )}
 
-      <form onSubmit={handleAdd} className="mt-6 border-t border-border pt-5">
-        <p className="text-sm font-medium">Add variant</p>
-        <div className="mt-3 grid gap-2 sm:grid-cols-[1.2fr_1fr_1fr_1fr_1fr_auto]">
-          <input
-            placeholder="SKU"
-            value={draft.sku}
-            onChange={(e) => setDraft((d) => ({ ...d, sku: e.target.value }))}
-            className={inputCls}
-          />
-          <input
-            placeholder="Size"
-            value={draft.size}
-            onChange={(e) => setDraft((d) => ({ ...d, size: e.target.value }))}
-            className={inputCls}
-          />
-          <input
-            placeholder="Color"
-            value={draft.color}
-            onChange={(e) => setDraft((d) => ({ ...d, color: e.target.value }))}
-            className={inputCls}
-          />
-          <input
-            type="number"
-            min={0}
-            step="0.01"
-            placeholder="Price ₹"
-            value={draft.price}
-            onChange={(e) => setDraft((d) => ({ ...d, price: e.target.value }))}
-            className={inputCls}
-          />
-          <input
-            type="number"
-            min={0}
-            placeholder="Stock"
-            value={draft.stock}
-            onChange={(e) => setDraft((d) => ({ ...d, stock: e.target.value }))}
-            className={inputCls}
-          />
+      <form
+        onSubmit={handleAdd}
+        className="mt-6 rounded-xl border border-dashed border-black/15 bg-[#faf9f6] p-4"
+      >
+        <div>
+          <p className="text-sm font-semibold">Add another product option</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Leave size and colour/flavour empty when the product has only one
+            standard version.
+          </p>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <Field label="SKU / inventory code">
+            <input
+              required
+              placeholder="Example: BFS-WHEY-1KG"
+              value={draft.sku}
+              onChange={(e) => setDraft((d) => ({ ...d, sku: e.target.value }))}
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Size / pack (optional)">
+            <input
+              placeholder="1 kg, M, 10 kg"
+              value={draft.size}
+              onChange={(e) => setDraft((d) => ({ ...d, size: e.target.value }))}
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Colour / flavour (optional)">
+            <input
+              placeholder="Black, Chocolate"
+              value={draft.color}
+              onChange={(e) => setDraft((d) => ({ ...d, color: e.target.value }))}
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Selling price (₹)">
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              placeholder={`Base price ₹${(product.basePrice / 100).toFixed(2)}`}
+              value={draft.price}
+              onChange={(e) => setDraft((d) => ({ ...d, price: e.target.value }))}
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Available stock">
+            <input
+              required
+              type="number"
+              min={0}
+              step={1}
+              value={draft.stock}
+              onChange={(e) => setDraft((d) => ({ ...d, stock: e.target.value }))}
+              className={inputCls}
+            />
+          </Field>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
             type="submit"
             disabled={creating}
-            className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:opacity-90 disabled:opacity-60"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:brightness-95 disabled:opacity-60"
           >
-            {creating ? "Adding…" : "Add"}
+            {creating ? "Adding option…" : "Add option"}
           </button>
+          {error && (
+            <p role="alert" className="text-sm text-red-700">
+              {error}
+            </p>
+          )}
         </div>
-        {error && (
-          <p className="mt-2 text-sm text-red-600">{error}</p>
-        )}
       </form>
     </section>
   );
@@ -540,11 +612,13 @@ function VariantRow({
   productId,
   onDelete,
   deleting,
+  canDelete,
 }: {
   variant: AdminProductDetail["variants"][number];
   productId: string;
   onDelete: () => void;
   deleting: boolean;
+  canDelete: boolean;
 }) {
   const [updateVariant, { isLoading }] = useAdminUpdateVariantMutation();
   const [sku, setSku] = useState(variant.sku);
@@ -552,11 +626,15 @@ function VariantRow({
   const [color, setColor] = useState(variant.color ?? "");
   const [price, setPrice] = useState((variant.price / 100).toFixed(2));
   const [stock, setStock] = useState(String(variant.stock));
+  const [status, setStatus] = useState<{
+    message: string;
+    error: boolean;
+  } | null>(null);
 
   const currentValues = {
-    sku,
-    size: size || null,
-    color: color || null,
+    sku: sku.trim(),
+    size: size.trim() || null,
+    color: color.trim() || null,
     price: rupeesToPaise(price) ?? -1,
     stock: stock.trim() ? Number(stock) : -1,
   };
@@ -569,16 +647,24 @@ function VariantRow({
   };
   const variantPatch = buildChangedFields(currentValues, originalValues);
   const dirty = hasChangedFields(variantPatch);
+  const optionName = productOptionLabel(currentValues.size, currentValues.color);
 
   async function handleSave() {
+    setStatus(null);
     const priceInPaise = rupeesToPaise(price);
     const stockValue = Number(stock);
     if (!sku.trim() || priceInPaise === null || priceInPaise < 0) {
-      alert("SKU and a valid non-negative price are required.");
+      setStatus({
+        message: "SKU and a valid non-negative price are required.",
+        error: true,
+      });
       return;
     }
     if (!stock.trim() || !Number.isInteger(stockValue) || stockValue < 0) {
-      alert("Stock must be a non-negative whole number.");
+      setStatus({
+        message: "Stock must be a non-negative whole number.",
+        error: true,
+      });
       return;
     }
     try {
@@ -587,67 +673,139 @@ function VariantRow({
         productId,
         body: variantPatch,
       }).unwrap();
+      setSku(sku.trim());
+      setSize(size.trim());
+      setColor(color.trim());
+      setStatus({ message: "Option saved.", error: false });
     } catch (err) {
       const e = err as { data?: { error?: { message?: string } } };
-      alert(e.data?.error?.message ?? "Save failed.");
+      setStatus({
+        message: e.data?.error?.message ?? "This option could not be saved.",
+        error: true,
+      });
     }
   }
 
   return (
-    <li className="grid gap-2 sm:grid-cols-[1.2fr_1fr_1fr_1fr_1fr_auto_auto]">
-      <input
-        value={sku}
-        onChange={(e) => setSku(e.target.value)}
-        className={inputCls}
-      />
-      <input
-        value={size}
-        onChange={(e) => setSize(e.target.value)}
-        placeholder="Size"
-        className={inputCls}
-      />
-      <input
-        value={color}
-        onChange={(e) => setColor(e.target.value)}
-        placeholder="Color"
-        className={inputCls}
-      />
-      <input
-        type="number"
-        min={0}
-        step="0.01"
-        value={price}
-        onChange={(e) => setPrice(e.target.value)}
-        className={inputCls}
-      />
-      <input
-        type="number"
-        min={0}
-        value={stock}
-        onChange={(e) => setStock(e.target.value)}
-        className={inputCls}
-      />
-      <button
-        type="button"
-        onClick={handleSave}
-        disabled={!dirty || isLoading}
-        className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40"
-      >
-        {isLoading ? "…" : "Save"}
-      </button>
-      <button
-        type="button"
-        onClick={onDelete}
-        disabled={deleting || isLoading}
-        className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted"
-        aria-label="Delete variant"
-      >
-        ×
-      </button>
+    <li className="rounded-xl border border-black/[0.08] bg-[#faf9f6] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold">{optionName}</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Changes in this card update only this option.
+          </p>
+        </div>
+        <span
+          className={
+            dirty
+              ? "rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-900"
+              : "rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800"
+          }
+        >
+          {dirty ? "Unsaved changes" : "Up to date"}
+        </span>
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <Field label="SKU / inventory code">
+          <input
+            value={sku}
+            onChange={(e) => {
+              setSku(e.target.value);
+              setStatus(null);
+            }}
+            className={inputCls}
+          />
+        </Field>
+        <Field label="Size / pack (optional)">
+          <input
+            value={size}
+            onChange={(e) => {
+              setSize(e.target.value);
+              setStatus(null);
+            }}
+            placeholder="1 kg, M, 10 kg"
+            className={inputCls}
+          />
+        </Field>
+        <Field label="Colour / flavour (optional)">
+          <input
+            value={color}
+            onChange={(e) => {
+              setColor(e.target.value);
+              setStatus(null);
+            }}
+            placeholder="Black, Chocolate"
+            className={inputCls}
+          />
+        </Field>
+        <Field label="Selling price (₹)">
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={price}
+            onChange={(e) => {
+              setPrice(e.target.value);
+              setStatus(null);
+            }}
+            className={inputCls}
+          />
+        </Field>
+        <Field label="Available stock">
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={stock}
+            onChange={(e) => {
+              setStock(e.target.value);
+              setStatus(null);
+            }}
+            className={inputCls}
+          />
+        </Field>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!dirty || isLoading}
+          className="rounded-lg bg-foreground px-3.5 py-2 text-xs font-semibold text-background hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {isLoading ? "Saving…" : "Save option"}
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={!canDelete || deleting || isLoading}
+          title={
+            canDelete
+              ? "Delete this product option"
+              : "An active product must keep at least one option."
+          }
+          className="rounded-lg border border-border px-3.5 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-40"
+          aria-label={`Delete ${optionName}`}
+        >
+          Delete
+        </button>
+        {status && (
+          <p
+            role={status.error ? "alert" : "status"}
+            className={
+              status.error
+                ? "text-xs font-medium text-red-700"
+                : "text-xs font-medium text-emerald-700"
+            }
+          >
+            {status.message}
+          </p>
+        )}
+      </div>
     </li>
   );
 }
-
 const inputCls =
   "mt-1.5 min-h-11 w-full rounded-xl border border-black/10 bg-[#faf9f6] px-3 py-2 text-sm outline-none transition focus:border-foreground/20 focus:bg-white focus:ring-2 focus:ring-primary/35";
 

@@ -147,7 +147,7 @@ export default function AdminProductsPage() {
                 <th className="px-5 py-4">Product</th>
                 <th className="px-5 py-4">Category</th>
                 <th className="px-5 py-4 text-right">Price</th>
-                <th className="px-5 py-4 text-right">Variants</th>
+                <th className="px-5 py-4 text-right">Options</th>
                 <th className="px-5 py-4">Visibility</th>
                 <th className="px-5 py-4 text-right">Actions</th>
               </tr>
