@@ -462,28 +462,31 @@ export default function ProductDetailPage() {
               </div>
             </div>
 
-            {data.variants.length > 0 && (
+            {data.variants.length > 1 && (
               <section className="mt-8 rounded-2xl border border-border p-5">
                 <div className="flex items-end justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold">Choose your option</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Select a size, flavour, or colour before adding to cart.
+                      Select the available size, pack, colour, or flavour.
                     </p>
                   </div>
                   {activeVariant && (
                     <span className="text-xs text-muted-foreground">
-                      SKU {activeVariant.sku}
+                      Selected:{" "}
+                      {[activeVariant.size, activeVariant.color]
+                        .filter(Boolean)
+                        .join(" / ") || "Standard"}
                     </span>
                   )}
                 </div>
 
                 <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {data.variants.map((variant) => {
+                  {data.variants.map((variant, index) => {
                     const isActive = activeVariant?.id === variant.id;
                     const label =
                       [variant.size, variant.color].filter(Boolean).join(" / ") ||
-                      variant.sku;
+                      `Option ${index + 1}`;
                     return (
                       <button
                         key={variant.id}

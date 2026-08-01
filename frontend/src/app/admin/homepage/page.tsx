@@ -190,6 +190,20 @@ export default function AdminHomepagePage() {
         <p className="mt-3 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800">
           Each card saves independently and sends only its changed fields.
         </p>
+        <div className="mt-4 grid gap-2 text-xs sm:grid-cols-3">
+          <p className="rounded-xl bg-[#faf9f6] px-3 py-2.5 text-muted-foreground">
+            <strong className="block text-foreground">Catalog image</strong>
+            Appears on shop cards and the product page.
+          </p>
+          <p className="rounded-xl bg-[#faf9f6] px-3 py-2.5 text-muted-foreground">
+            <strong className="block text-foreground">Hero banner</strong>
+            Appears only when added to a hero slide below.
+          </p>
+          <p className="rounded-xl bg-[#faf9f6] px-3 py-2.5 text-muted-foreground">
+            <strong className="block text-foreground">Featured product</strong>
+            Appears only after it is selected and published below.
+          </p>
+        </div>
       </header>
 
       <Section
@@ -336,7 +350,7 @@ export default function AdminHomepagePage() {
 
       <Section
         title="Hero carousel slides"
-        description="Optional image-backed slides for the homepage hero. Leave empty to use the fallback hero."
+        description="Marketing banners only. Product images are never inserted here automatically; leave this empty to use the branded fallback hero."
         dirty={hasChangedFields(carouselPatch)}
         saving={savingSection === "hero-carousel"}
         status={sectionStatus["hero-carousel"]}
@@ -373,7 +387,7 @@ export default function AdminHomepagePage() {
 
       <Section
         title="Featured products"
-        description="Ordered list surfaced on the homepage. Leave empty to show newest products automatically."
+        description="Choose and order products intentionally. If this list is empty, the featured-products section stays hidden."
         dirty={hasChangedFields(featuredPatch)}
         saving={savingSection === "featured-products"}
         status={sectionStatus["featured-products"]}
@@ -1040,12 +1054,18 @@ function FeaturedPicker({
   onChange: (ids: string[]) => void;
 }) {
   const [search, setSearch] = useState("");
-  const { data } = useAdminListProductsQuery({
+  const { data: searchData } = useAdminListProductsQuery({
     search: search || undefined,
     limit: 12,
   });
+  const { data: selectedData } = useAdminListProductsQuery(
+    { ids: selected.join(","), limit: 12 },
+    { skip: selected.length === 0 },
+  );
 
-  const byId = new Map(data?.items.map((p) => [p.id, p]) ?? []);
+  const byId = new Map(
+    [...(selectedData?.items ?? []), ...(searchData?.items ?? [])].map((p) => [p.id, p]),
+  );
 
   function toggle(id: string) {
     if (selected.includes(id)) {
@@ -1072,7 +1092,7 @@ function FeaturedPicker({
         <p className="text-sm font-medium">Selected ({selected.length}/12)</p>
         {selected.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">
-            No featured products chosen. The homepage will use newest products.
+            No products selected. This homepage section will stay hidden.
           </p>
         ) : (
           <ol className="mt-2 space-y-2">
@@ -1121,7 +1141,7 @@ function FeaturedPicker({
           />
         </label>
         <ul className="mt-3 max-h-64 space-y-1 overflow-y-auto pr-1">
-          {(data?.items ?? []).map((p) => {
+          {(searchData?.items ?? []).map((p) => {
             const included = selected.includes(p.id);
             return (
               <li key={p.id}>

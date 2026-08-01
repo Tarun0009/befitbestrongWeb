@@ -6,7 +6,6 @@ import type { HeroSlide, PublicSiteConfig } from "@/lib/siteConfigApi";
 
 interface HeroCarouselProps {
   config: PublicSiteConfig | undefined;
-  fallbackImage?: string | null;
 }
 
 const DEFAULT_HERO_IMAGE =
@@ -28,10 +27,7 @@ function legacyHero(config: PublicSiteConfig | undefined): HeroSlide {
   };
 }
 
-export function HeroCarousel({
-  config,
-  fallbackImage,
-}: HeroCarouselProps) {
+export function HeroCarousel({ config }: HeroCarouselProps) {
   const slides = useMemo(() => {
     const configured =
       config?.heroSlides?.filter((slide) => slide.headline.trim()) ?? [];
@@ -41,8 +37,7 @@ export function HeroCarousel({
   const [paused, setPaused] = useState(false);
 
   const slide = slides[active] ?? slides[0] ?? legacyHero(config);
-  const preferredImage =
-    slide.imageUrl || fallbackImage || DEFAULT_HERO_IMAGE;
+  const preferredImage = slide.imageUrl || DEFAULT_HERO_IMAGE;
   const [imageSrc, setImageSrc] = useState<string | null>(preferredImage);
 
   useEffect(() => {
@@ -77,7 +72,7 @@ export function HeroCarousel({
   return (
     <section
       className="relative min-h-[68vh] overflow-hidden border-b border-border bg-foreground text-background sm:min-h-[72vh]"
-      aria-label="Featured products"
+      aria-label="Homepage promotions"
       aria-roledescription="carousel"
     >
       <div
